@@ -18,7 +18,6 @@ The application uses a microservices architecture with the following components:
 - **Location Service**: Manages location data and location-based queries
 - **Review Service**: Provides functionality for users to review locations
 - **PostgreSQL**: Persistent storage for all services
-- **RabbitMQ**: Message broker for inter-service communication
 
 Each service follows a clean architecture pattern with the following layers:
 - Domain: Core business logic and entities
