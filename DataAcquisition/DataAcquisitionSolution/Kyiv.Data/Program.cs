@@ -6,13 +6,11 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        Console.WriteLine("=== Kyiv Shelters Data Acquisition ===");
+        Console.WriteLine("=== Data Acquisition ===");
         Console.WriteLine();
 
         // Get user inputs
-        bool refreshData = GetBooleanInput("Refresh data from Kyiv API? (t/f): ");
         string token = GetStringInput("Enter authentication token: ");
-        string kyivApi = GetStringInput("Enter Kyiv API URL: ");
         string serviceApi = GetStringInput("Enter Location Service API URL: ");
 
         Console.WriteLine();
@@ -20,27 +18,14 @@ class Program
 
         try
         {
-            string jsonData;
-            
-            if (refreshData)
-            {
-                Console.WriteLine("Fetching data from Kyiv API...");
-                jsonData = await FetchDataFromKyivApi(kyivApi);
-                
-                Console.WriteLine("Saving data locally...");
-                await SaveDataLocally(jsonData);
-            }
-            else
-            {
-                Console.WriteLine("Loading data from local file...");
-                jsonData = await LoadLocalData();
-            }
+            Console.WriteLine("Loading data from local file...");
+            string jsonData = await LoadLocalData();
 
-            Console.WriteLine("Processing shelter data...");
+            Console.WriteLine("Processing data...");
             var shelters = ProcessShelterData(jsonData);
-            
-            Console.WriteLine($"Found {shelters.Count} shelters to process");
-            
+
+            Console.WriteLine($"Found {shelters.Count} locations to process");
+
             Console.WriteLine("Creating locations in service...");
             await CreateLocationsInService(shelters, serviceApi, token);
             
@@ -83,33 +68,6 @@ class Program
         }
     }
 
-    static async Task<string> FetchDataFromKyivApi(string apiUrl)
-    {
-        using var httpClient = new HttpClient();
-        httpClient.Timeout = TimeSpan.FromMinutes(5);
-        
-        try
-        {
-            var response = await httpClient.GetStringAsync(apiUrl);
-            return response;
-        }
-        catch (Exception ex)
-        {
-            throw new Exception($"Failed to fetch data from Kyiv API: {ex.Message}");
-        }
-    }
-
-    static async Task SaveDataLocally(string jsonData)
-    {
-        try
-        {
-            await File.WriteAllTextAsync("kyiv_shelters.json", jsonData);
-        }
-        catch (Exception ex)
-        {
-            throw new Exception($"Failed to save data locally: {ex.Message}");
-        }
-    }
 
     static async Task<string> LoadLocalData()
     {

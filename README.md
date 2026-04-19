@@ -1,14 +1,14 @@
-# Microservices Application
+# InteractiveMap
 
-A scalable microservices architecture built with .NET 8, Entity Framework Core, and PostgreSQL. The application consists of three core services (User, Location, and Review) that communicate with each other through RESTful APIs and message queuing.
+A microservices application built with .NET 8, Entity Framework Core, and PostgreSQL. Three core services (User, Location, Review) provide core functionality for location-based reviews and interactions.
 
 ## Table of Contents
 
-- [Architecture Overview](https://github.com/roflmyrlok/InteractiveMap/new/main?filename=README.md#architecture-overview)
-- [Services](https://github.com/roflmyrlok/InteractiveMap/new/main?filename=README.md#services)
-- [Project Structure](https://github.com/roflmyrlok/InteractiveMap/new/main?filename=README.md#project-structure)
-- [Getting Started](https://github.com/roflmyrlok/InteractiveMap/new/main?filename=README.md#getting-started)
-- [Other](https://github.com/roflmyrlok/InteractiveMap/new/main?filename=README.md#look-api-documentationmd-for-api-specs)
+- [Architecture](#architecture-overview)
+- [Services](#services)
+- [Project Structure](#project-structure)
+- [Deployment](#deployment)
+- [API Documentation](#api-documentation)
 
 ## Architecture Overview
 
@@ -49,6 +49,7 @@ Each service follows a clean architecture pattern with the following layers:
 ## Project Structure
 
 ```
+InteractiveMap/
 ├── backend/
 │   ├── UserService/
 │   │   ├── UserService.API
@@ -69,80 +70,82 @@ Each service follows a clean architecture pattern with the following layers:
 │       ├── ReviewService.Infrastructure
 │       └── ReviewService.Tests
 ├── ci-cd/
-│   ├── docker-compose.yml
-│   ├── .env.example
-│   ├── run-local.sh
-│   └── init-db.sh
+│   ├── docker-compose.yml      (Production deployment)
+│   ├── .env.example             (Configuration template)
+│   ├── nginx.conf               (Reverse proxy)
+│   ├── init-db.sh               (Database initialization)
+│   └── README.md                (Deployment guide)
 └── README.md
 ```
 
-## Getting Started
+## Deployment
 
-### Prerequisites
+This project is deployed to a **single EC2 instance** using Docker Compose.
 
-- [Docker](https://www.docker.com/products/docker-desktop/) and Docker Compose
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (for local development)
-- [Git](https://git-scm.com/downloads)
+### Quick Start on EC2
 
-### Running the Application localy
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/roflmyrlok/InteractiveMap
-   cd InteractiveMap
-   ```
-
-2. Run the application using the provided script:
+1. **Configure environment:**
    ```bash
    cd ci-cd
-   chmod +x run-local.sh
-   chmod +x init-db.sh
-   ./run-local.sh
+   cp .env.example .env
+   nano .env  # Update with your values
    ```
 
-This script will:
-- Create a `.env` file from `.env.example` if one doesn't exist
-- Start PostgreSQL, RabbitMQ, and all services in Docker containers
-- Configure the database and apply migrations
+2. **Start the stack:**
+   ```bash
+   docker compose up -d
+   ```
 
-### Accessing the Services
+3. **Verify deployment:**
+   ```bash
+   docker compose ps
+   docker compose logs -f
+   ```
 
-After successful startup, you can access the services at:
+### Environment Variables
 
-- User Service API: http://localhost:5280/swagger
-- Location Service API: http://localhost:5282/swagger
-- Review Service API: http://localhost:5284/swagger
-- RabbitMQ Management UI: http://localhost:15672 (guest/guest)
+Required values in `.env`:
+- `POSTGRES_PASSWORD` - Database password
+- `JWT_KEY` - Generate with: `openssl rand -base64 32`
+- `DOMAIN_NAME` - Your EC2 domain or public IP
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` - For S3 uploads
+- `S3_BUCKET_NAME`, `S3_REGION`, `S3_BASE_URL` - S3 configuration
 
-- This depends on config and should be prompted after initialization
-
-### Stopping the Application
-
-To stop all services:
-
-```bash
-cd ci-cd
-docker compose down
-```
-
-To remove all data and start fresh:
+### Common Commands
 
 ```bash
-cd ci-cd
-docker compose down -v
+docker compose ps                      # Check service status
+docker compose logs -f                 # View logs
+docker compose restart <service>       # Restart a service
+docker compose down                    # Stop all services
+docker compose up -d --build           # Rebuild and restart
 ```
 
+For complete deployment instructions, see [ci-cd/README.md](ci-cd/README.md).
 
-## Look API-Documentation.md for API specs
 
-## Note on RabbitMQ
+## API Documentation
 
-The application uses RabbitMQ for asynchronous communication between services:
+See [API-Documentation.md](API-Documentation.md) for complete API specifications.
 
- **Location Validation**:
-   - When a user creates a review, the Review Service needs to validate that the location exists
-   - Review Service publishes a `LocationValidationRequest` message to RabbitMQ
-   - Location Service consumes the message, checks if the location exists
-   - Location Service publishes a `LocationValidationResponse` message
-   - Review Service consumes the response and proceeds accordingly
-   - If Location Service / RabbitMQ / Review Service is not working some resources may not be created with server error in response, though other functionality should remain unafected
+## Architecture Notes
+
+### Services
+- **UserService** - User registration, authentication, JWT token generation
+- **LocationService** - Location CRUD, geospatial queries
+- **ReviewService** - Review CRUD, ratings, S3 file uploads
+
+### Database
+- Single PostgreSQL instance shared across all services
+- Automatic initialization via `init-db.sh` on first startup
+
+### Infrastructure
+- **Nginx** - Reverse proxy (ports 80/443)
+- **Docker** - Containerization
+- **Docker Compose** - Orchestration
+
+### Production Environment
+- All services run in **Production mode** (Swagger disabled for security)
+- Nginx handles routing and HTTPS termination
+- Services communicate over internal network
+- Single EC2 instance deployment

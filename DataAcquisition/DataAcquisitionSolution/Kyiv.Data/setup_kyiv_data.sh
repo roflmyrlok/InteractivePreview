@@ -6,39 +6,32 @@
 
 set -e
 
-# Colors for output
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
 # Configuration - data file in current directory
 OUTPUT_FILE="kyiv_shelters.json"
 
-# Function to print colored output
+# Function to print output
 print_header() {
     echo ""
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}========================================${NC}"
+    echo "========================================"
+    echo "$1"
+    echo "========================================"
     echo ""
 }
 
 print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo "[INFO] $1"
 }
 
 print_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
+    echo "[SUCCESS] $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}[!]${NC} $1"
+    echo "[WARNING] $1"
 }
 
 print_error() {
-    echo -e "${RED}[✗]${NC} $1"
+    echo "[ERROR] $1"
 }
 
 # Step 1: Check dependencies
@@ -79,78 +72,45 @@ check_dependencies() {
     fi
 }
 
-# Step 2: Try to download the data
+# Step 2: Download data if not present
 download_data() {
-    print_header "Step 2: Downloading Kyiv GIS Data"
+    print_header "Step 2: Checking Data File"
 
-    local api_url="https://gisserver.kyivcity.gov.ua/mayno/rest/services/KYIV_API/Київ_Цифровий/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&f=pjson"
+    # If file exists, verify and skip download
+    if [ -f "$OUTPUT_FILE" ]; then
+        print_status "Found existing file: $OUTPUT_FILE"
 
-    # Method 1: Try with Python requests (more reliable)
-    if command -v python3 &> /dev/null; then
-        print_status "Attempting download with Python (Method 1)..."
-
-        python3 << 'PYTHON_EOF'
-import requests
-import json
-import sys
-
-url = "https://gisserver.kyivcity.gov.ua/mayno/rest/services/KYIV_API/Київ_Цифровий/MapServer/0/query"
-params = {
-    "where": "1=1",
-    "outFields": "*",
-    "returnGeometry": "true",
-    "f": "pjson"
-}
-
-headers = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Referer": "https://gisserver.kyivcity.gov.ua/",
-    "Accept": "application/json",
-}
-
-try:
-    session = requests.Session()
-    session.headers.update(headers)
-    response = session.get(url, params=params, timeout=300, verify=True)
-
-    if response.status_code == 200:
-        data = response.json()
-
-        with open("kyiv_shelters.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-        feature_count = len(data.get("features", []))
-        print(f"✓ SUCCESS: Downloaded {feature_count} features")
-        sys.exit(0)
-    else:
-        print(f"✗ HTTP {response.status_code}")
-        sys.exit(1)
-except Exception as e:
-    print(f"✗ Error: {e}")
-    sys.exit(1)
-PYTHON_EOF
-
-        if [ $? -eq 0 ]; then
+        if command -v jq &> /dev/null; then
+            if jq empty "$OUTPUT_FILE" 2>/dev/null; then
+                local record_count=$(jq '.features | length' "$OUTPUT_FILE")
+                print_success "File is valid with $record_count records. Skipping download."
+                return 0
+            else
+                print_error "Existing file is not valid JSON"
+                return 1
+            fi
+        else
+            print_success "File exists. Skipping download."
             return 0
         fi
     fi
 
-    # Method 2: Try with curl and headers
-    print_status "Attempting download with curl (Method 2)..."
+    # File doesn't exist, download it
+    print_status "File not found. Downloading data..."
+
+    local api_url="https://gisserver.kyivcity.gov.ua/mayno/rest/services/KYIV_API/Київ_Цифровий/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&f=pjson"
 
     if curl -f --progress-bar --max-time 300 \
-        -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" \
-        -H "Referer: https://gisserver.kyivcity.gov.ua/" \
+        -H "User-Agent: Mozilla/5.0" \
         -H "Accept: application/json" \
         -o "$OUTPUT_FILE" \
         "$api_url" 2>/dev/null; then
-        print_success "Data downloaded with curl"
+        print_success "Data downloaded successfully"
         return 0
+    else
+        print_error "Download failed"
+        return 1
     fi
-
-    # If both methods fail
-    print_warning "Automated download failed (server blocking requests)"
-    return 1
 }
 
 # Step 3: Verify the downloaded data
@@ -187,55 +147,16 @@ verify_data() {
     fi
 }
 
-# Step 4: Handle download failure with alternatives
-handle_download_failure() {
-    print_header "Download Failed - Alternative Methods"
 
-    print_warning "Automated download was blocked by the server"
-    print_status ""
-    print_status "Option 1: Browser Download (Most Reliable)"
-    print_status "  1. Open this URL in your browser:"
-    print_status "     https://gisserver.kyivcity.gov.ua/mayno/rest/services/KYIV_API/Київ_Цифровий/MapServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&f=pjson"
-    print_status "  2. Wait for JSON to load"
-    print_status "  3. Right-click → Save As → kyiv_shelters.json"
-    print_status "  4. Place file in this directory (Kyiv.Data/)"
-    print_status "  5. Run this script again"
-    print_status ""
-    print_status "Option 2: Use Python Directly"
-    print_status "  python3 << 'EOF'"
-    print_status "  import requests, json"
-    print_status "  url = 'https://gisserver.kyivcity.gov.ua/mayno/rest/services/KYIV_API/Київ_Цифровий/MapServer/0/query'"
-    print_status "  params = {'where': '1=1', 'outFields': '*', 'returnGeometry': 'true', 'f': 'pjson'}"
-    print_status "  response = requests.get(url, params=params)"
-    print_status "  with open('kyiv_shelters.json', 'w') as f: json.dump(response.json(), f)"
-    print_status "  EOF"
-    print_status ""
-
-    # Check if file was manually downloaded
-    if [ -f "$OUTPUT_FILE" ]; then
-        print_status "Found $OUTPUT_FILE in current directory"
-        read -p "Should I use this file? (y/n) " -r response
-        if [[ "$response" =~ ^[Yy]$ ]]; then
-            if verify_data; then
-                return 0
-            fi
-        fi
-    fi
-
-    return 1
-}
-
-# Step 5: Run the data acquisition app
+# Step 3: Run the data acquisition app
 run_data_acquisition() {
-    print_header "Step 5: Running Data Acquisition App"
+    print_header "Step 3: Running Data Acquisition App"
 
     print_status "Starting dotnet application..."
     print_status ""
     print_status "When prompted:"
-    print_status "  1. 'Refresh data?' → Answer: f (use local file: $OUTPUT_FILE)"
-    print_status "  2. 'Auth token?' → Paste your JWT token"
-    print_status "  3. 'Kyiv API URL?' → Keep default or ask your admin"
-    print_status "  4. 'Service API URL?' → Usually: http://localhost:5261/api/locations"
+    print_status "  1. 'Auth token?' → Paste your JWT token"
+    print_status "  2. 'Service API URL?' → Example: http://host/api/locations"
     print_status ""
 
     read -p "Press Enter to start the app..." -r
@@ -253,13 +174,12 @@ run_data_acquisition() {
 
 # Main execution
 main() {
-    print_header "Kyiv Shelters - Automated Setup & Run"
+    print_header "Data Acquisition - Setup & Run"
 
     print_status "This script will:"
     print_status "  1. Check dependencies"
-    print_status "  2. Download Kyiv GIS shelter data"
-    print_status "  3. Verify the downloaded data"
-    print_status "  4. Run the data acquisition app"
+    print_status "  2. Download data if not present"
+    print_status "  3. Run the data acquisition app"
     print_status ""
     print_status "Current directory: $(pwd)"
     print_status ""
@@ -267,26 +187,16 @@ main() {
     # Step 1: Check dependencies
     check_dependencies
 
-    # Step 2: Download data
-    if download_data; then
-        print_success "Data download completed"
-    else
-        if ! handle_download_failure; then
-            print_error "Setup failed. Please download data manually and try again."
-            exit 1
-        fi
-    fi
-
-    # Step 3: Verify data
-    if ! verify_data; then
-        print_error "Data verification failed"
+    # Step 2: Download data if not present
+    if ! download_data; then
+        print_error "Setup failed. Could not obtain data file."
         exit 1
     fi
 
     print_success "Setup completed successfully!"
     print_status ""
 
-    # Step 4: Run app
+    # Step 3: Run app
     print_status "Ready to run the data acquisition app"
     read -p "Continue to app? (y/n) " -r response
 
