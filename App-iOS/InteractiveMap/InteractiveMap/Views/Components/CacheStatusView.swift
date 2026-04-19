@@ -139,7 +139,7 @@ struct CacheStatusView: View {
     }
 }
 
-class CacheStatusViewModel: ObservableObject {
+@MainActor final class CacheStatusViewModel: ObservableObject {
     @Published var cacheStatus = CacheStatus(locationCount: 0, reviewCount: 0, lastViewedCount: 0, cacheSize: "0 KB")
     @Published var lastViewedLocations: [Location] = []
     @Published var showClearAllAlert = false

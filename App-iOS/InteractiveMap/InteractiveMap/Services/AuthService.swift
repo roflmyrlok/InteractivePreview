@@ -8,7 +8,7 @@
 import Foundation
 import Alamofire
 
-class AuthService {
+@MainActor final class AuthService {
     func login(username: String, password: String, completion: @escaping (Bool, String?) -> Void) {
         let parameters: [String: Any] = [
             "username": username,

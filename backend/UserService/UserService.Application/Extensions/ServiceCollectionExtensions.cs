@@ -11,13 +11,13 @@ namespace UserService.Application.Extensions
 	{
 		public static IServiceCollection AddApplicationServices(this IServiceCollection services)
 		{
-			services.AddAutoMapper(typeof(MappingProfile));
-			
+			services.AddSingleton<UserMapper>();
+
 			services.AddScoped<IUserService, UserService.Application.Services.UserService>();
-			
+
 			services.AddFluentValidationAutoValidation();
 			services.AddValidatorsFromAssemblyContaining<CreateUserValidator>();
-            
+
 			return services;
 		}
 	}

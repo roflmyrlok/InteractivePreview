@@ -6,7 +6,7 @@
 //
 
 
-struct LoginRequest: Codable {
+struct LoginRequest: Codable, Sendable {
     let username: String
     let password: String
 }

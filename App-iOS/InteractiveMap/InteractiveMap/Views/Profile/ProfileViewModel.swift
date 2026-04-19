@@ -7,7 +7,7 @@
 
 import Foundation
 
-class ProfileViewModel: ObservableObject {
+@MainActor final class ProfileViewModel: ObservableObject {
     @Published var user: User?
     @Published var isLoading = false
     @Published var alertItem: AlertItem?

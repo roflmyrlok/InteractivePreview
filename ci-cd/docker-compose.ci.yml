@@ -1,0 +1,41 @@
+# docker-compose.ci.yml
+# ──────────────────────────────────────────────────────────────────
+# Unit-test pipeline — builds every service to the `test` stage of
+# its Dockerfile, which runs `dotnet test` during `docker build`.
+#
+# No volume mounts, no external services required.  The source is
+# already COPY'd into the container by the build stage so the
+# filesystem is fully writable (no more "read-only file system" for
+# obj/ or bin/).
+#
+# Usage (via ci-local.sh is recommended):
+#   docker compose -f docker-compose.ci.yml build               # test all
+#   docker compose -f docker-compose.ci.yml build userservice-test
+# ──────────────────────────────────────────────────────────────────
+
+services:
+  userservice-test:
+    build:
+      context: ../backend/UserService
+      dockerfile: Dockerfile
+      target: test          # stops at the `test` stage; runs dotnet test during build
+    image: interactivemap/userservice:test
+    # The container is never started — all work happens at build time.
+    # Entrypoint is a no-op so `docker compose run` exits cleanly if called.
+    entrypoint: ["echo", "UserService tests completed"]
+
+  locationservice-test:
+    build:
+      context: ../backend/LocationService
+      dockerfile: Dockerfile
+      target: test
+    image: interactivemap/locationservice:test
+    entrypoint: ["echo", "LocationService tests completed"]
+
+  reviewservice-test:
+    build:
+      context: ../backend/ReviewService
+      dockerfile: Dockerfile
+      target: test
+    image: interactivemap/reviewservice:test
+    entrypoint: ["echo", "ReviewService tests completed"]

@@ -7,31 +7,32 @@
 import Network
 import Foundation
 
-class NetworkMonitor: ObservableObject {
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "NetworkMonitor")
-    
+@MainActor
+final class NetworkMonitor: ObservableObject {
     @Published var isConnected = true
     @Published var connectionType: NWInterface.InterfaceType?
-    
+
     static let shared = NetworkMonitor()
-    
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "NetworkMonitor")
+
     private init() {
         startMonitoring()
     }
-    
+
     private func startMonitoring() {
         monitor.pathUpdateHandler = { [weak self] path in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 self?.isConnected = path.status == .satisfied
                 self?.connectionType = path.availableInterfaces.first?.type
-                
+
                 print("Network status changed: \(path.status == .satisfied ? "Connected" : "Disconnected")")
             }
         }
         monitor.start(queue: queue)
     }
-    
+
     deinit {
         monitor.cancel()
     }

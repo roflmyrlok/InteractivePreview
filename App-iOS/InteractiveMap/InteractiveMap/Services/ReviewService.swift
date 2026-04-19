@@ -8,7 +8,7 @@
 import Foundation
 import Alamofire
 
-class ReviewService {
+@MainActor final class ReviewService {
     private let cacheManager = CacheManager.shared
     
     func getReviewsForLocation(locationId: String, completion: @escaping ([Review]?, Error?) -> Void) {
@@ -56,17 +56,26 @@ class ReviewService {
     }
 
     func createReview(locationId: String, rating: Int, content: String, completion: @escaping (Review?, Error?) -> Void) {
+        // Backend: POST /api/reviews/json — accepts CreateReviewDto
+        //   { locationId: Guid, rating: int, content: string, imageUrls: string[] }
+        // imageUrls is optional on the server side (defaults to empty list), so we
+        // omit it here. Content-Type is explicitly set to avoid any proxy/header
+        // stripping surprises along the nginx path.
         let parameters: [String: Any] = [
             "locationId": locationId,
             "rating": rating,
             "content": content
         ]
-        
+
+        var headers = HTTPHeaders()
+        headers["Content-Type"] = "application/json"
+
         if TokenManager.shared.isAuthenticated {
             NetworkManager.shared.request(
                 APIConstants.reviewServiceURL + "/json",
                 method: .post,
                 parameters: parameters,
+                headers: headers,
                 authenticated: true
             ) { (result: Result<Review, Error>) in
                 switch result {

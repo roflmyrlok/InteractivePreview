@@ -169,17 +169,27 @@ class Program
 
     static CreateLocationCommand? ConvertFeatureToLocation(GisFeature feature)
     {
-        if (feature.Geometry == null || feature.Attributes == null)
+        if (feature.Attributes == null)
             return null;
 
         var address = GetAttributeValue(feature.Attributes, "address");
         if (string.IsNullOrWhiteSpace(address))
             return null;
 
+        // Use lat/long from attributes instead of projected geometry coordinates
+        var latStr = GetAttributeValue(feature.Attributes, "lat");
+        var lonStr = GetAttributeValue(feature.Attributes, "long");
+
+        if (string.IsNullOrWhiteSpace(latStr) || string.IsNullOrWhiteSpace(lonStr))
+            return null;
+
+        if (!double.TryParse(latStr, out var latitude) || !double.TryParse(lonStr, out var longitude))
+            return null;
+
         var location = new CreateLocationCommand
         {
-            Latitude = feature.Geometry.Y,
-            Longitude = feature.Geometry.X,
+            Latitude = latitude,
+            Longitude = longitude,
             Address = address,
             Details = new List<LocationDetailDto>()
         };

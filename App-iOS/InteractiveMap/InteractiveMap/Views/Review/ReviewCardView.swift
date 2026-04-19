@@ -115,7 +115,7 @@ struct FullscreenImageView: View {
     }
 }
 
-class ReviewImageLoader: ObservableObject {
+@MainActor final class ReviewImageLoader: ObservableObject {
     @Published var images: [String: UIImage] = [:]
     @Published var isLoading = false
     

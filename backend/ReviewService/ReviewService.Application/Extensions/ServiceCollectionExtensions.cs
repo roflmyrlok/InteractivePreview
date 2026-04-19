@@ -11,13 +11,13 @@ public static class ServiceCollectionExtensions
 {
 	public static IServiceCollection AddApplicationServices(this IServiceCollection services)
 	{
-		services.AddAutoMapper(typeof(MappingProfile));
-        
+		services.AddSingleton<ReviewMapper>();
+
 		services.AddScoped<IReviewService, Services.ReviewService>();
-        
+
 		services.AddFluentValidationAutoValidation();
 		services.AddValidatorsFromAssemblyContaining<CreateReviewValidator>();
-        
+
 		return services;
 	}
 }

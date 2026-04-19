@@ -7,7 +7,7 @@
 
 import Foundation
 
-class CacheManager {
+@MainActor final class CacheManager {
     static let shared = CacheManager()
     
     private let userDefaults = UserDefaults.standard
@@ -355,7 +355,7 @@ class CacheManager {
     }
 }
 
-struct CacheStatus {
+struct CacheStatus: Sendable {
     let locationCount: Int
     let reviewCount: Int
     let lastViewedCount: Int

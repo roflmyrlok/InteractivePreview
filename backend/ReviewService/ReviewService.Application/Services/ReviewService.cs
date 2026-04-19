@@ -1,7 +1,7 @@
-using AutoMapper;
 using Microsoft.Extensions.Logging;
 using ReviewService.Application.DTOs;
 using ReviewService.Application.Interfaces;
+using ReviewService.Application.Mapping;
 using ReviewService.Domain.Entities;
 using ReviewService.Domain.Exceptions;
 
@@ -11,13 +11,13 @@ public class ReviewService : IReviewService
 {
     private readonly IReviewRepository _reviewRepository;
     private readonly ILocationService _locationService;
-    private readonly IMapper _mapper;
+    private readonly ReviewMapper _mapper;
     private readonly ILogger<ReviewService> _logger;
 
     public ReviewService(
-        IReviewRepository reviewRepository, 
-        ILocationService locationService, 
-        IMapper mapper,
+        IReviewRepository reviewRepository,
+        ILocationService locationService,
+        ReviewMapper mapper,
         ILogger<ReviewService> logger)
     {
         _reviewRepository = reviewRepository;
@@ -29,7 +29,7 @@ public class ReviewService : IReviewService
     public async Task<IEnumerable<ReviewDto>> GetAllReviewsAsync()
     {
         var reviews = await _reviewRepository.GetAllAsync();
-        return _mapper.Map<IEnumerable<ReviewDto>>(reviews);
+        return _mapper.ReviewsToReviewDtos(reviews);
     }
 
     public async Task<ReviewDto> GetReviewByIdAsync(Guid id)
@@ -40,45 +40,45 @@ public class ReviewService : IReviewService
             throw new DomainException($"Review with ID {id} not found");
         }
 
-        return _mapper.Map<ReviewDto>(review);
+        return _mapper.ReviewToReviewDto(review);
     }
 
     public async Task<IEnumerable<ReviewDto>> GetReviewsByUserIdAsync(Guid userId)
     {
         var reviews = await _reviewRepository.FindAsync(r => r.UserId == userId);
-        return _mapper.Map<IEnumerable<ReviewDto>>(reviews);
+        return _mapper.ReviewsToReviewDtos(reviews);
     }
 
     public async Task<IEnumerable<ReviewDto>> GetReviewsByLocationIdAsync(Guid locationId)
     {
         var reviews = await _reviewRepository.FindAsync(r => r.LocationId == locationId);
-        return _mapper.Map<IEnumerable<ReviewDto>>(reviews);
+        return _mapper.ReviewsToReviewDtos(reviews);
     }
-    
+
     public async Task<ReviewDto> CreateReviewAsync(CreateReviewDto createReviewDto, Guid userId)
     {
         _logger.LogInformation("Creating review for location {LocationId} by user {UserId}", createReviewDto.LocationId, userId);
-        
+
         try
         {
             bool locationExists = await _locationService.ValidateLocationExistsAsync(createReviewDto.LocationId);
-            
+
             if (!locationExists)
             {
                 _logger.LogWarning("Location {LocationId} does not exist, cannot create review", createReviewDto.LocationId);
                 throw new DomainException($"Unable to create review: Location with ID {createReviewDto.LocationId} does not exist");
             }
 
-            var review = _mapper.Map<Review>(createReviewDto);
+            var review = _mapper.CreateReviewDtoToReview(createReviewDto);
             review.Id = Guid.NewGuid();
             review.UserId = userId;
             review.CreatedAt = DateTime.UtcNow;
 
             await _reviewRepository.AddAsync(review);
-            
+
             _logger.LogInformation("Successfully created review {ReviewId} for location {LocationId}", review.Id, createReviewDto.LocationId);
 
-            return _mapper.Map<ReviewDto>(review);
+            return _mapper.ReviewToReviewDto(review);
         }
         catch (DomainException)
         {
@@ -104,12 +104,12 @@ public class ReviewService : IReviewService
             throw new DomainException("You can only update your own reviews");
         }
 
-        _mapper.Map(updateReviewDto, review);
+        _mapper.UpdateReviewFromDto(updateReviewDto, review);
         review.UpdatedAt = DateTime.UtcNow;
 
         await _reviewRepository.UpdateAsync(review);
 
-        return _mapper.Map<ReviewDto>(review);
+        return _mapper.ReviewToReviewDto(review);
     }
 
     public async Task DeleteReviewAsync(Guid id, Guid userId)

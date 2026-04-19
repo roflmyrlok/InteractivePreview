@@ -41,7 +41,7 @@ struct AsyncImageView: View {
     }
 }
 
-class AsyncImageLoader: ObservableObject {
+@MainActor final class AsyncImageLoader: ObservableObject {
     @Published var image: UIImage?
     @Published var isLoading = false
     
