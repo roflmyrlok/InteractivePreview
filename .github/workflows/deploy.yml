@@ -16,8 +16,8 @@ jobs:
       - name: Log in to Docker Hub
         run: |
           mkdir -p $DOCKER_CONFIG
-          echo '{"auths":{}}' > $DOCKER_CONFIG/config.json
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          AUTH=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" | base64)
+          echo "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"}}}" > $DOCKER_CONFIG/config.json
 
       - name: Build and push UserService
         run: |
