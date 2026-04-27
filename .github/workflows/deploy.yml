@@ -47,7 +47,10 @@ jobs:
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/reviewservice:latest
 
       - name: Pull and restart all services
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
+          cp /Users/epyt/workspace/InteractivePreview/ci-cd/.env ci-cd/.env
           cd ci-cd
           docker-compose pull
           docker-compose up -d --force-recreate
