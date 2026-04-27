@@ -9,7 +9,7 @@ import Foundation
 import MapKit
 import Combine
 
-class MapViewModel: ObservableObject {
+@MainActor final class MapViewModel: ObservableObject {
     @Published var locations: [Location] = []
     @Published var isLoading = false
     @Published var errorMessage: String?

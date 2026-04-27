@@ -7,7 +7,7 @@
 import Foundation
 import MapKit
 
-class LocationViewModel: ObservableObject {
+@MainActor final class LocationViewModel: ObservableObject {
     @Published var location: Location?
     @Published var isLoading = false
     @Published var errorMessage: String?

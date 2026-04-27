@@ -168,7 +168,7 @@ extension DeleteAccountView {
 }
 
 // MARK: - DeleteAccountViewModel
-class DeleteAccountViewModel: ObservableObject {
+@MainActor final class DeleteAccountViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     

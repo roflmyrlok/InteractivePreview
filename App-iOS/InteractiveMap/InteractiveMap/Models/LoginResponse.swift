@@ -6,6 +6,6 @@
 //
 
 
-struct LoginResponse: Codable {
+struct LoginResponse: Codable, Sendable {
     let token: String
 }

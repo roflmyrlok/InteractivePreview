@@ -1,7 +1,7 @@
 import Foundation
 import Alamofire
 
-class NetworkManager {
+@MainActor final class NetworkManager {
     static let shared = NetworkManager()
     
     private init() {
@@ -272,7 +272,7 @@ class NetworkManager {
 }
 
 // Helper struct for JWT payload
-struct JWTPayload {
+struct JWTPayload: Sendable {
     let exp: TimeInterval
     let sub: String?
 }

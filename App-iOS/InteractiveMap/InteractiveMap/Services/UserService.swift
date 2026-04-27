@@ -8,7 +8,7 @@
 import Foundation
 import Alamofire
 
-class UserService {
+@MainActor final class UserService {
     func getCurrentUser(completion: @escaping (User?, Error?) -> Void) {
         guard TokenManager.shared.isAuthenticated else {
             let authError = NSError(domain: "UserService", code: 401, userInfo: [NSLocalizedDescriptionKey: "No authentication token"])

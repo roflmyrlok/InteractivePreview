@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Review: Codable, Identifiable {
+struct Review: Codable, Identifiable, Sendable {
     let id: String
     let userId: String
     let locationId: String

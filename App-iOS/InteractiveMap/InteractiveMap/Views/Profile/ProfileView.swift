@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var showCacheStatus = false
     @State private var showChangePassword = false
     @State private var showDeleteAccount = false
+    @State private var showDevSettings = false
     
     init() {
         _viewModel = StateObject(wrappedValue: ProfileViewModel(authViewModel: AuthViewModel()))
@@ -166,7 +167,7 @@ struct ProfileView: View {
                         // App Settings Section
                         VStack(spacing: 16) {
                             SectionHeaderView(title: "App Settings", icon: "gear")
-                            
+
                             VStack(spacing: 12) {
                                 ManagementButton(
                                     icon: "internaldrive",
@@ -178,10 +179,31 @@ struct ProfileView: View {
                             }
                         }
                         .padding(.horizontal, 20)
-                        
+
                         Divider()
                             .padding(.vertical, 10)
-                        
+
+                        // Developer Section
+                        VStack(spacing: 16) {
+                            SectionHeaderView(title: "Developer", icon: "hammer.fill")
+
+                            VStack(spacing: 12) {
+                                ManagementButton(
+                                    icon: "server.rack",
+                                    title: "API Host",
+                                    subtitle: APIConstants.isUsingDefault
+                                        ? "Using default: \(APIConstants.baseURL)"
+                                        : "Custom: \(APIConstants.baseURL)",
+                                    iconColor: .teal,
+                                    action: { showDevSettings = true }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 20)
+
+                        Divider()
+                            .padding(.vertical, 10)
+
                         // Logout Button
                         Button(action: {
                             viewModel.logout()
@@ -285,7 +307,36 @@ struct ProfileView: View {
                         .cornerRadius(12)
                     }
                     .padding(.horizontal, 40)
-                    
+
+                    // Developer Settings entry point (also accessible while logged out,
+                    // so a custom host can be configured before the first login).
+                    Button(action: {
+                        showDevSettings = true
+                    }) {
+                        HStack {
+                            Image(systemName: "server.rack")
+                                .foregroundColor(.teal)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Developer Settings")
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.primary)
+                                Text(APIConstants.isUsingDefault
+                                     ? "Default API host"
+                                     : "Custom API host in use")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.gray)
+                                .font(.caption)
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    .padding(.horizontal, 40)
+
                     Spacer()
                 }
             }
@@ -310,6 +361,9 @@ struct ProfileView: View {
             DeleteAccountView {
                 authViewModel.logout()
             }
+        }
+        .sheet(isPresented: $showDevSettings) {
+            DevSettingsView()
         }
         .onAppear {
             viewModel.updateAuthViewModel(authViewModel)
@@ -478,7 +532,7 @@ extension ProfileView {
     }
 }
 
-struct AlertItem: Identifiable {
+struct AlertItem: Identifiable, Sendable {
     let id = UUID()
     let title: String
     let message: String

@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct LocationDetail: Codable, Identifiable {
+struct LocationDetail: Codable, Identifiable, Sendable {
     let id: String
     let propertyName: String
     let propertyValue: String

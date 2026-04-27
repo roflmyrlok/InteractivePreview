@@ -7,22 +7,22 @@
 
 import Foundation
 
-struct ChangePasswordRequest: Codable {
+struct ChangePasswordRequest: Codable, Sendable {
     let currentPassword: String
     let newPassword: String
     let confirmNewPassword: String
 }
 
-struct DeleteAccountRequest: Codable {
+struct DeleteAccountRequest: Codable, Sendable {
     let currentPassword: String
 }
 
-struct PasswordChangeResponse: Codable {
+struct PasswordChangeResponse: Codable, Sendable {
     let message: String
 }
 
 // Helper struct for empty responses (HTTP 204 No Content)
-struct EmptyResponse: Codable {
+struct EmptyResponse: Codable, Sendable {
     // Empty struct for endpoints that return no content
     init() {}
 }

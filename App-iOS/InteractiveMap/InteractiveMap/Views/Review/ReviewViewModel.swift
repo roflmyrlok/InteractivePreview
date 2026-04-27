@@ -8,7 +8,7 @@
 import Foundation
 import UIKit
 
-class ReviewViewModel: ObservableObject {
+@MainActor final class ReviewViewModel: ObservableObject {
     @Published var reviews: [Review] = []
     @Published var isLoading = false
     @Published var errorMessage: String?

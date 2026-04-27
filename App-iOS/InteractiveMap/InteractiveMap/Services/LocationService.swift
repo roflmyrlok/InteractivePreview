@@ -2,7 +2,7 @@
 import Foundation
 import Alamofire
 
-class LocationService {
+@MainActor final class LocationService {
     private let cacheManager = CacheManager.shared
     
     func getLocations(completion: @escaping ([Location]?, Error?) -> Void) {
@@ -101,13 +101,23 @@ class LocationService {
     }
     
     func getNearbyLocations(latitude: Double, longitude: Double, radiusKm: Double = 1, completion: @escaping ([Location]?, Error?) -> Void) {
-        let url = "\(APIConstants.locationServiceURL)/nearby?latitude=\(latitude)&longitude=\(longitude)&radiusKm=\(radiusKm)"
-        
-        print("Requesting nearby locations from: \(url)")
-        
+        // Backend: GET /api/locations/nearby?latitude=..&longitude=..&radiusKm=..
+        // Use the parameters dictionary so Alamofire performs proper URL encoding
+        // of numeric values, rather than hand-rolling a query string (which can
+        // emit locale-specific separators on some devices).
+        let url = "\(APIConstants.locationServiceURL)/nearby"
+        let parameters: [String: Any] = [
+            "latitude": latitude,
+            "longitude": longitude,
+            "radiusKm": radiusKm
+        ]
+
+        print("Requesting nearby locations from: \(url) with parameters: \(parameters)")
+
         NetworkManager.shared.request(
             url,
-            method: .get
+            method: .get,
+            parameters: parameters
         ) { (result: Result<[Location], Error>) in
             switch result {
             case .success(let locations):

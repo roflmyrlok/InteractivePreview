@@ -37,6 +37,7 @@ services:
       - microservices-network
 
   userservice:
+    platform: linux/amd64   # EC2 target is x86-64; build/run AMD64 image
     build:
       context: ../backend/UserService
       dockerfile: Dockerfile
@@ -45,7 +46,7 @@ services:
     ports:
       - "127.0.0.1:${USERSERVICE_HTTP_PORT}:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_HTTP_PORTS=8080
       - ConnectionStrings__DefaultConnection=${USERSERVICE_CONNECTION_STRING}
       - Jwt__Key=${JWT_KEY}
@@ -58,6 +59,7 @@ services:
       - microservices-network
       
   reviewservice:
+    platform: linux/amd64
     build:
       context: ../backend/ReviewService
       dockerfile: Dockerfile
@@ -90,6 +92,7 @@ services:
       - microservices-network
 
   locationservice:
+    platform: linux/amd64
     build:
       context: ../backend/LocationService
       dockerfile: Dockerfile
@@ -98,7 +101,7 @@ services:
     ports:
       - "127.0.0.1:${LOCATIONSERVICE_HTTP_PORT}:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_HTTP_PORTS=8080
       - ConnectionStrings__DefaultConnection=${LOCATIONSERVICE_CONNECTION_STRING}
       - Jwt__Key=${JWT_KEY}

@@ -7,14 +7,14 @@
 
 import Foundation
 
-struct CreateReviewRequest: Codable {
+struct CreateReviewRequest: Codable, Sendable {
     let locationId: String
     let rating: Int
     let content: String
 }
 
 // For multipart form data with images
-struct CreateReviewWithImagesRequest {
+struct CreateReviewWithImagesRequest: Sendable {
     let locationId: String
     let rating: Int
     let content: String

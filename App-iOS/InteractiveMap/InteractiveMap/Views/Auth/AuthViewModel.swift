@@ -7,7 +7,7 @@
 
 import Foundation
 
-class AuthViewModel: ObservableObject {
+@MainActor final class AuthViewModel: ObservableObject {
     @Published var isAuthenticated = TokenManager.shared.isAuthenticated
     @Published var isLoading = false
     @Published var errorMessage: String?

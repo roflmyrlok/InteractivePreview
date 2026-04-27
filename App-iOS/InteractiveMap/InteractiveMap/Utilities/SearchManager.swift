@@ -4,7 +4,7 @@ import Foundation
 import MapKit
 import Combine
 
-class SearchManager: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+@MainActor final class SearchManager: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
     @Published var searchText = ""
     @Published var searchResults: [MKLocalSearchCompletion] = []
     @Published var isSearching = false
@@ -205,19 +205,22 @@ class SearchManager: NSObject, ObservableObject, MKLocalSearchCompleterDelegate 
         return location.address
     }
     
-    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        // Only update if we're online
-        guard networkMonitor.isConnected else { return }
-        
-        let mapResults = completer.results.prefix(5)
-        self.searchResults = Array(mapResults)
-        self.isSearching = false
+    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        let results = Array(completer.results.prefix(5))
+        Task { @MainActor in
+            // Only update if we're online
+            guard self.networkMonitor.isConnected else { return }
+            self.searchResults = results
+            self.isSearching = false
+        }
     }
     
-    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
         print("Map search failed with error: \(error.localizedDescription)")
-        self.searchResults = []
-        self.isSearching = false
+        Task { @MainActor in
+            self.searchResults = []
+            self.isSearching = false
+        }
     }
     
     func searchLocation(for completion: MKLocalSearchCompletion, completionHandler: @escaping (CLLocationCoordinate2D?) -> Void) {
@@ -298,7 +301,7 @@ class SearchManager: NSObject, ObservableObject, MKLocalSearchCompleterDelegate 
     }
 }
 
-struct LocationSearchResult: Identifiable, Hashable {
+struct LocationSearchResult: Identifiable, Hashable, Sendable {
     let id = UUID()
     let location: Location
     let title: String

@@ -1,50 +1,72 @@
 # API Documentation
 
-This document provides detailed information about the APIs available in the microservices application.
-It is generated and may be not up-to-date
+This document describes the HTTP surface exposed by the InteractiveMap backend (`UserService`, `LocationService`, `ReviewService`) and how the **App-iOS.2** client maps onto it. It is written directly from the current source of truth — the controllers under `backend/*/API/Controllers` and the DTOs under `backend/*/Application/DTOs` — plus the Swift services under `App-iOS.2/InteractiveMap/InteractiveMap/`.
+
+> **Transport:** The backend is **HTTP only** (no TLS). The iOS app's `Info.plist` carries an `NSAllowsArbitraryLoads` ATS exception so plain-HTTP traffic is allowed. Do **not** switch the client to `https://` — the server does not terminate TLS.
 
 ## Table of Contents
 
+- [Deployment & Base URLs](#deployment--base-urls)
 - [Authentication](#authentication)
 - [User Service API](#user-service-api)
 - [Location Service API](#location-service-api)
 - [Review Service API](#review-service-api)
+- [Health Endpoints](#health-endpoints)
 - [Error Handling](#error-handling)
+- [App-iOS.2 Integration Guide](#app-ios2-integration-guide)
+
+## Deployment & Base URLs
+
+The three services are separate ASP.NET Core projects. Each exposes its own port when run locally, and in the deployed environment they sit behind an nginx reverse proxy on a single host so all `/api/...` routes resolve from one origin.
+
+| Service          | Dev port (`launchSettings.json` → `http` profile) | Route prefix    |
+|------------------|---------------------------------------------------|-----------------|
+| UserService      | `http://localhost:5280`                           | `/api/auth`, `/api/users` |
+| LocationService  | `http://localhost:5261`                           | `/api/locations` |
+| ReviewService    | `http://localhost:5260`                           | `/api/reviews` |
+
+Deployed base URL (AWS EC2, used by the iOS app's compiled-in default):
+
+```
+http://ec2-63-177-81-123.eu-central-1.compute.amazonaws.com
+```
+
+Behind that host, nginx routes `/api/auth` and `/api/users` to UserService, `/api/locations` to LocationService, and `/api/reviews` to ReviewService. All examples below use paths relative to the shared origin.
 
 ## Authentication
 
-Most endpoints require authentication using JSON Web Tokens (JWT). To authenticate:
+Most write endpoints and user-specific read endpoints require a JWT. To authenticate:
 
-1. Make a POST request to `/api/auth/login` with valid credentials
-2. Receive a JWT token in the response
-3. Include the token in subsequent requests in the Authorization header:
-   ```
-   Authorization: Bearer <your_token>
-   ```
+1. `POST /api/auth/login` with `{ username, password }`.
+2. Receive `{ "token": "<jwt>" }`.
+3. Send subsequent requests with `Authorization: Bearer <jwt>`.
 
-### Token Claims
+### JWT claims
 
-The JWT token includes the following claims:
-- `sub`: User ID (GUID)
-- `email`: User email
-- `username`: Username
-- `role`: User role (Regular, Admin, SuperAdmin)
-- `jti`: Unique token ID
-- `exp`: Expiration time
+Tokens are signed with HS256 and expire 1 hour after issue (UTC). Claims included:
+
+- `sub` — User ID (GUID). Also mirrored to `ClaimTypes.NameIdentifier`.
+- `email` — User email.
+- `username` — Custom claim.
+- `jti` — Unique token identifier.
+- `exp` — Expiration (UTC epoch seconds).
+- `role` — One of `Regular`, `Admin`, `SuperAdmin` (issued via `ClaimTypes.Role`).
+
+Both the UserService (`BaseAuthenticatedController`) and ReviewService (`JwtHelper`) look up the user ID from multiple claim types as a defensive measure (`sub`, `ClaimTypes.NameIdentifier`, `nameid`, `user_id`, `userId`, etc.), so any reasonable encoding of the subject works.
 
 ## User Service API
 
-Base URL: `http://localhost:5280/api`
+Route prefix: `/api`
 
-### Authentication
-
-#### Login
+### Login
 
 ```
-POST /auth/login
+POST /api/auth/login
+Content-Type: application/json
 ```
 
-Request:
+Request body (`LoginRequestDto`):
+
 ```json
 {
   "username": "johndoe",
@@ -52,115 +74,61 @@ Request:
 }
 ```
 
-Response (200 OK):
+Response `200 OK`:
+
 ```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
+{ "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." }
 ```
 
-### User Management
+Errors: `401 Unauthorized` — bad credentials or user not found; `500` — unexpected error.
 
-#### Get All Users
-
-```
-GET /users
-```
-
-Authorization: Required (Admin or SuperAdmin)
-
-Response (200 OK):
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "username": "johndoe",
-    "email": "john@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "role": 0,
-    "createdAt": "2025-03-15T14:30:00Z",
-    "lastLoginDate": "2025-03-19T09:45:00Z"
-  },
-  ...
-]
-```
-
-#### Get User by ID
+### List all users
 
 ```
-GET /users/{id}
+GET /api/users
+Authorization: Bearer <jwt>       (role: Admin or SuperAdmin)
 ```
 
-Authorization: Required
+Response `200 OK`: array of `UserDto` (see shape below).
 
-Response (200 OK):
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "firstName": "John",
-  "lastName": "Doe",
-  "role": 0,
-  "createdAt": "2025-03-15T14:30:00Z",
-  "lastLoginDate": "2025-03-19T09:45:00Z"
-}
-```
+### Get current user
 
-#### Get User by Email
+Two equivalent routes are exposed — the iOS app uses `/me`:
 
 ```
-GET /users/by-email/{email}
+GET /api/users/me
+GET /api/users/current
+Authorization: Bearer <jwt>
 ```
 
-Authorization: Required (Admin or SuperAdmin)
+Response `200 OK`: `UserDto`.
 
-Response (200 OK):
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "firstName": "John",
-  "lastName": "Doe",
-  "role": 0,
-  "createdAt": "2025-03-15T14:30:00Z",
-  "lastLoginDate": "2025-03-19T09:45:00Z"
-}
-```
-
-#### Get User by Username
+### Get user by ID
 
 ```
-GET /users/by-username/{username}
+GET /api/users/{id}
+Authorization: Bearer <jwt>
 ```
 
-Authorization: Required (Admin or SuperAdmin)
+A non-admin caller may only request their own ID (`403 Forbidden` otherwise).
 
-Response (200 OK):
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "firstName": "John",
-  "lastName": "Doe",
-  "role": 0,
-  "createdAt": "2025-03-15T14:30:00Z",
-  "lastLoginDate": "2025-03-19T09:45:00Z"
-}
-```
-
-#### Create User
+### Get user by email / username
 
 ```
-POST /users
+GET /api/users/by-email/{email}
+GET /api/users/by-username/{username}
+Authorization: Bearer <jwt>       (role: Admin or SuperAdmin)
 ```
 
-Authorization: Not required
+### Register (create user)
 
-Request:
+```
+POST /api/users
+Content-Type: application/json
+```
+
+Anonymous. Request body (`CreateUserDto`):
+
 ```json
 {
   "username": "johndoe",
@@ -172,34 +140,20 @@ Request:
 }
 ```
 
-Role values:
-- 0: Regular
-- 1: Admin
-- 2: SuperAdmin
+`role` is the integer value of the `UserRole` enum: `0 = Regular`, `1 = Admin`, `2 = SuperAdmin`. If omitted the server defaults to `Regular`.
 
-Response (201 Created):
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "firstName": "John",
-  "lastName": "Doe",
-  "role": 0,
-  "createdAt": "2025-03-20T10:15:30Z",
-  "lastLoginDate": null
-}
-```
+Response `201 Created` with the created `UserDto` and a `Location` header pointing at `/api/users/{id}`.
 
-#### Update User
+### Update user
 
 ```
-PUT /users
+PUT /api/users
+Authorization: Bearer <jwt>
+Content-Type: application/json
 ```
 
-Authorization: Required
+Body (`UpdateUserDto`):
 
-Request:
 ```json
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -210,657 +164,487 @@ Request:
 }
 ```
 
-Response (200 OK):
+Non-admins can only update their own `id`. Response `200 OK`: updated `UserDto`.
+
+### Change password
+
+Both verbs are accepted so iOS clients can POST:
+
+```
+POST /api/users/change-password
+PUT  /api/users/change-password
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Body (`ChangePasswordDto`):
+
 ```json
 {
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "username": "johndoe",
-  "email": "john.smith@example.com",
-  "firstName": "John",
-  "lastName": "Smith",
-  "role": 0,
-  "createdAt": "2025-03-15T14:30:00Z",
+  "currentPassword": "oldP@ss1",
+  "newPassword":     "newP@ssword1",
+  "confirmNewPassword": "newP@ssword1"
+}
+```
+
+`newPassword` must be ≥ 8 chars; `confirmNewPassword` must equal `newPassword`. Response `200 OK`: `{ "message": "Password changed successfully" }`.
+
+### Delete own account
+
+Both verbs are accepted:
+
+```
+DELETE /api/users/delete-account
+POST   /api/users/delete-account
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Body (`DeleteAccountDto`):
+
+```json
+{ "currentPassword": "P@ssw0rd123!" }
+```
+
+Response `204 No Content`.
+
+### Delete another user (admin)
+
+```
+DELETE /api/users/{id}
+Authorization: Bearer <jwt>       (role: Admin or SuperAdmin)
+```
+
+Users cannot delete themselves via this endpoint — use `/delete-account` instead. Response `204 No Content`.
+
+### UserDto shape
+
+```json
+{
+  "id":            "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "username":      "johndoe",
+  "email":         "john@example.com",
+  "firstName":     "John",
+  "lastName":      "Doe",
+  "role":          0,
+  "createdAt":     "2025-03-15T14:30:00Z",
   "lastLoginDate": "2025-03-19T09:45:00Z"
 }
 ```
 
-#### Delete User
-
-```
-DELETE /users/{id}
-```
-
-Authorization: Required (Admin or SuperAdmin)
-
-Response (204 No Content)
+`role` is serialized as its integer value; `lastLoginDate` is nullable.
 
 ## Location Service API
 
-Base URL: `http://localhost:5282/api`
+Route prefix: `/api/locations`. The controller uses CQRS (MediatR) — all queries/commands are dispatched through an `IMediator`.
 
-### Location Management
-
-#### Get All Locations
+### List all locations
 
 ```
-GET /locations
+GET /api/locations
 ```
 
-Authorization: Not required
+Anonymous. Response `200 OK`: array of `LocationDto`.
 
-Response (200 OK):
+### Get location by ID
+
+```
+GET /api/locations/{id}
+```
+
+Anonymous. Response `200 OK`: `LocationDto`. Returns `404` if the location does not exist.
+
+### Validate location exists
+
+```
+GET /api/locations/validate/{id}
+```
+
+Anonymous. Always returns `200 OK` with a boolean:
+
 ```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "name": "Central Park",
-    "latitude": 40.785091,
-    "longitude": -73.968285,
-    "address": "Central Park",
-    "city": "New York",
-    "state": "NY",
-    "country": "USA",
-    "postalCode": "10022",
-    "createdAt": "2025-03-10T08:15:30Z",
-    "details": [
-      {
-        "id": "4fa85f64-5717-4562-b3fc-2c963f66afa7",
-        "propertyName": "type",
-        "propertyValue": "park"
-      },
-      {
-        "id": "5fa85f64-5717-4562-b3fc-2c963f66afa8",
-        "propertyName": "size",
-        "propertyValue": "843 acres"
-      }
-    ]
-  },
-  ...
-]
+{ "exists": true }
 ```
 
-#### Get Location by ID
+### Find nearby locations
 
 ```
-GET /locations/{id}
+GET /api/locations/nearby?latitude={lat}&longitude={lon}&radiusKm={km}
 ```
 
-Authorization: Not required
+Anonymous. `radiusKm` defaults to `10` on the server if omitted. Response `200 OK`: array of `LocationDto`.
 
-Response (200 OK):
+### Create location
+
+```
+POST /api/locations
+Content-Type: application/json
+```
+
+> The current controller does **not** apply `[Authorize]` to `Create`, so this endpoint is anonymous on the server. Treat that as an implementation detail that may change; clients should still be prepared to send a bearer token.
+
+Body (`CreateLocationCommand`):
+
 ```json
 {
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "name": "Central Park",
-  "latitude": 40.785091,
+  "latitude": 40.748817,
+  "longitude": -73.985428,
+  "address": "350 Fifth Avenue, New York, NY 10118",
+  "details": [
+    { "propertyName": "type",     "propertyValue": "building" },
+    { "propertyName": "yearBuilt","propertyValue": "1931" }
+  ]
+}
+```
+
+Response `201 Created` with a `Location` header pointing at `/api/locations/{id}` and a body of `{ "id": "<new-guid>" }`.
+
+> **No update/delete endpoints exist** for locations or location details in the current controller. Earlier versions of this doc listed `PUT /api/locations`, `POST /api/locations/{id}/details`, `PUT /api/locations/{id}/details/{detailId}`, `DELETE /api/locations/{id}/details/{detailId}`, `DELETE /api/locations/{id}`, and `GET /api/locations/by-property` — those are **not implemented** in the current `LocationsController`.
+
+### LocationDto shape
+
+```json
+{
+  "id":        "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "latitude":  40.785091,
   "longitude": -73.968285,
-  "address": "Central Park",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10022",
+  "address":   "Central Park, New York, NY",
   "createdAt": "2025-03-10T08:15:30Z",
+  "updatedAt": null,
   "details": [
     {
-      "id": "4fa85f64-5717-4562-b3fc-2c963f66afa7",
-      "propertyName": "type",
+      "id":            "4fa85f64-5717-4562-b3fc-2c963f66afa7",
+      "propertyName":  "type",
       "propertyValue": "park"
-    },
-    {
-      "id": "5fa85f64-5717-4562-b3fc-2c963f66afa8",
-      "propertyName": "size",
-      "propertyValue": "843 acres"
     }
   ]
 }
 ```
 
-#### Find Nearby Locations
-
-```
-GET /locations/nearby?latitude=40.7128&longitude=-74.0060&radiusKm=5
-```
-
-Authorization: Not required
-
-Response (200 OK):
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "name": "Central Park",
-    "latitude": 40.785091,
-    "longitude": -73.968285,
-    "address": "Central Park",
-    "city": "New York",
-    "state": "NY",
-    "country": "USA",
-    "postalCode": "10022",
-    "createdAt": "2025-03-10T08:15:30Z",
-    "details": [...]
-  },
-  ...
-]
-```
-
-#### Find Locations by Property
-
-```
-GET /locations/by-property?key=type&value=park
-```
-
-Authorization: Not required
-
-Response (200 OK):
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "name": "Central Park",
-    "latitude": 40.785091,
-    "longitude": -73.968285,
-    "address": "Central Park",
-    "city": "New York",
-    "state": "NY",
-    "country": "USA",
-    "postalCode": "10022",
-    "createdAt": "2025-03-10T08:15:30Z",
-    "details": [...]
-  },
-  ...
-]
-```
-
-#### Create Location
-
-```
-POST /locations
-```
-
-Authorization: Required
-
-Request:
-```json
-{
-  "name": "Empire State Building",
-  "latitude": 40.748817,
-  "longitude": -73.985428,
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118",
-  "details": [
-    {
-      "propertyName": "type",
-      "propertyValue": "building"
-    },
-    {
-      "propertyName": "height",
-      "propertyValue": "381 meters"
-    }
-  ]
-}
-```
-
-Response (201 Created):
-```json
-{
-  "id": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "name": "Empire State Building",
-  "latitude": 40.748817,
-  "longitude": -73.985428,
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118",
-  "createdAt": "2025-03-20T10:25:30Z",
-  "details": [
-    {
-      "id": "7fa85f64-5717-4562-b3fc-2c963f66afaa",
-      "propertyName": "type",
-      "propertyValue": "building"
-    },
-    {
-      "id": "8fa85f64-5717-4562-b3fc-2c963f66afab",
-      "propertyName": "height",
-      "propertyValue": "381 meters"
-    }
-  ]
-}
-```
-
-#### Update Location
-
-```
-PUT /locations
-```
-
-Authorization: Required
-
-Request:
-```json
-{
-  "id": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "name": "Empire State Building",
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118"
-}
-```
-
-Response (200 OK):
-```json
-{
-  "id": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "name": "Empire State Building",
-  "latitude": 40.748817,
-  "longitude": -73.985428,
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118",
-  "createdAt": "2025-03-20T10:25:30Z",
-  "details": [...]
-}
-```
-
-#### Delete Location
-
-```
-DELETE /locations/{id}
-```
-
-Authorization: Required (Admin or SuperAdmin)
-
-Response (204 No Content)
-
-### Location Details Management
-
-#### Add Location Detail
-
-```
-POST /locations/{locationId}/details
-```
-
-Authorization: Required
-
-Request:
-```json
-{
-  "propertyName": "yearBuilt",
-  "propertyValue": "1931"
-}
-```
-
-Response (200 OK):
-```json
-{
-  "id": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "name": "Empire State Building",
-  "latitude": 40.748817,
-  "longitude": -73.985428,
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118",
-  "createdAt": "2025-03-20T10:25:30Z",
-  "details": [
-    {
-      "id": "7fa85f64-5717-4562-b3fc-2c963f66afaa",
-      "propertyName": "type",
-      "propertyValue": "building"
-    },
-    {
-      "id": "8fa85f64-5717-4562-b3fc-2c963f66afab",
-      "propertyName": "height",
-      "propertyValue": "381 meters"
-    },
-    {
-      "id": "9fa85f64-5717-4562-b3fc-2c963f66afac",
-      "propertyName": "yearBuilt",
-      "propertyValue": "1931"
-    }
-  ]
-}
-```
-
-#### Update Location Detail
-
-```
-PUT /locations/{locationId}/details/{detailId}
-```
-
-Authorization: Required
-
-Request:
-```json
-{
-  "propertyName": "height",
-  "propertyValue": "381.1 meters"
-}
-```
-
-Response (200 OK):
-```json
-{
-  "id": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "name": "Empire State Building",
-  "latitude": 40.748817,
-  "longitude": -73.985428,
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118",
-  "createdAt": "2025-03-20T10:25:30Z",
-  "details": [
-    {
-      "id": "7fa85f64-5717-4562-b3fc-2c963f66afaa",
-      "propertyName": "type",
-      "propertyValue": "building"
-    },
-    {
-      "id": "8fa85f64-5717-4562-b3fc-2c963f66afab",
-      "propertyName": "height",
-      "propertyValue": "381.1 meters"
-    }
-  ]
-}
-```
-
-#### Remove Location Detail
-
-```
-DELETE /locations/{locationId}/details/{detailId}
-```
-
-Authorization: Required
-
-Response (200 OK):
-```json
-{
-  "id": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "name": "Empire State Building",
-  "latitude": 40.748817,
-  "longitude": -73.985428,
-  "address": "350 Fifth Avenue",
-  "city": "New York",
-  "state": "NY",
-  "country": "USA",
-  "postalCode": "10118",
-  "createdAt": "2025-03-20T10:25:30Z",
-  "details": [
-    {
-      "id": "7fa85f64-5717-4562-b3fc-2c963f66afaa",
-      "propertyName": "type",
-      "propertyValue": "building"
-    }
-  ]
-}
-```
+> The DTO has only `id`, `latitude`, `longitude`, `address`, `createdAt`, `updatedAt`, and `details`. There are **no** `name`, `city`, `state`, `country`, or `postalCode` fields — any such data should be encoded into `address` or as entries in `details`.
 
 ## Review Service API
 
-Base URL: `http://localhost:5284/api`
+Route prefix: `/api/reviews`.
 
-### Review Management
-
-#### Get All Reviews
+### List all reviews
 
 ```
-GET /reviews
+GET /api/reviews
 ```
 
-Authorization: Not required
+Anonymous. Response `200 OK`: array of `ReviewDto`.
 
-Response (200 OK):
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "userId": "1fa85f64-5717-4562-b3fc-2c963f66afa1",
-    "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-    "rating": 5,
-    "content": "Amazing building with a fantastic view from the observation deck!",
-    "createdAt": "2025-03-20T11:15:30Z",
-    "updatedAt": null
-  },
-  ...
-]
-```
-
-#### Get Review by ID
+### Get review by ID
 
 ```
-GET /reviews/{id}
+GET /api/reviews/{id}
 ```
 
-Authorization: Not required
+Anonymous. Response `200 OK`: `ReviewDto`.
 
-Response (200 OK):
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "userId": "1fa85f64-5717-4562-b3fc-2c963f66afa1",
-  "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "rating": 5,
-  "content": "Amazing building with a fantastic view from the observation deck!",
-  "createdAt": "2025-03-20T11:15:30Z",
-  "updatedAt": null
-}
-```
-
-#### Get Reviews by User ID
+### Get reviews by user
 
 ```
-GET /reviews/by-user/{userId}
+GET /api/reviews/by-user/{userId}
 ```
 
-Authorization: Not required
+Anonymous. Response `200 OK`: array of `ReviewDto`.
 
-Response (200 OK):
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "userId": "1fa85f64-5717-4562-b3fc-2c963f66afa1",
-    "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-    "rating": 5,
-    "content": "Amazing building with a fantastic view from the observation deck!",
-    "createdAt": "2025-03-20T11:15:30Z",
-    "updatedAt": null
-  },
-  ...
-]
-```
-
-#### Get Reviews by Location ID
+### Get reviews by location
 
 ```
-GET /reviews/by-location/{locationId}
+GET /api/reviews/by-location/{locationId}
 ```
 
-Authorization: Not required
+Anonymous. Response `200 OK`: array of `ReviewDto`.
 
-Response (200 OK):
-```json
-[
-  {
-    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "userId": "1fa85f64-5717-4562-b3fc-2c963f66afa1",
-    "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-    "rating": 5,
-    "content": "Amazing building with a fantastic view from the observation deck!",
-    "createdAt": "2025-03-20T11:15:30Z",
-    "updatedAt": null
-  },
-  ...
-]
-```
-
-#### Get Average Rating for Location
+### Get average rating for a location
 
 ```
-GET /reviews/average-rating/{locationId}
+GET /api/reviews/average-rating/{locationId}
 ```
 
-Authorization: Not required
+Anonymous. Response `200 OK`:
 
-Response (200 OK):
 ```json
 {
-  "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
+  "locationId":    "6fa85f64-5717-4562-b3fc-2c963f66afa9",
   "averageRating": 4.7
 }
 ```
 
-#### Create Review
+### Stream a review image
 
 ```
-POST /reviews
+GET /api/reviews/images/{reviewId}/{fileName}
 ```
 
-Authorization: Required
+Anonymous. Returns the binary image with the stored `Content-Type`. `404` if the object is not in S3.
 
-Request:
+### Create review — multipart (with images)
+
+```
+POST /api/reviews
+Authorization: Bearer <jwt>
+Content-Type: multipart/form-data
+```
+
+Form fields (`CreateReviewWithImagesDto`):
+
+- `locationId` — GUID string
+- `rating` — integer (1–5)
+- `content` — string
+- `images` — zero or more file parts; field name `images`
+
+The server creates the review first, then (if any `images` were included) uploads them to S3 and patches the review with the resulting URLs. If image upload fails, the review is still created.
+
+Response `201 Created` with `ReviewDto` and a `Location` header pointing at `/api/reviews/{id}`.
+
+### Create review — JSON (no images)
+
+```
+POST /api/reviews/json
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Body (`CreateReviewDto`):
+
 ```json
 {
   "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
   "rating": 4,
-  "content": "Great place to visit! Highly recommended."
+  "content": "Great place!",
+  "imageUrls": []
 }
 ```
 
-Response (201 Created):
+`imageUrls` defaults to an empty list on the server and may be omitted. Response `201 Created`: `ReviewDto`.
+
+### Upload more images to an existing review
+
+```
+POST /api/reviews/upload-images/{reviewId}
+Authorization: Bearer <jwt>
+Content-Type: multipart/form-data
+```
+
+Form field: `images` (one or more files). The caller must own the review (`403 Forbidden` otherwise). New image URLs are appended to the existing `imageUrls`.
+
+Response `200 OK`:
+
 ```json
 {
-  "id": "7fa85f64-5717-4562-b3fc-2c963f66afad",
-  "userId": "1fa85f64-5717-4562-b3fc-2c963f66afa1",
+  "message":   "Images uploaded successfully",
+  "imageUrls": ["/api/reviews/images/<reviewId>/<file>.jpg"],
+  "review":    { /* updated ReviewDto */ }
+}
+```
+
+### Update review
+
+```
+PUT /api/reviews
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Body (`UpdateReviewDto`):
+
+```json
+{
+  "id":        "7fa85f64-5717-4562-b3fc-2c963f66afad",
+  "rating":    5,
+  "content":   "Updated review content",
+  "imageUrls": ["/api/reviews/images/.../a.jpg"]
+}
+```
+
+Caller must own the review. Response `200 OK`: updated `ReviewDto`.
+
+### Delete review
+
+```
+DELETE /api/reviews/{id}
+Authorization: Bearer <jwt>
+```
+
+Caller must own the review. Associated S3 images are deleted best-effort. Response `204 No Content`.
+
+### Delete a single review image
+
+```
+DELETE /api/reviews/image
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "reviewId": "7fa85f64-5717-4562-b3fc-2c963f66afad",
+  "imageUrl": "/api/reviews/images/<reviewId>/<file>.jpg"
+}
+```
+
+Caller must own the review. Response `200 OK`:
+
+```json
+{ "message": "Image deleted successfully", "deleted": true }
+```
+
+### ReviewDto shape
+
+```json
+{
+  "id":         "7fa85f64-5717-4562-b3fc-2c963f66afad",
+  "userId":     "1fa85f64-5717-4562-b3fc-2c963f66afa1",
   "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "rating": 4,
-  "content": "Great place to visit! Highly recommended.",
-  "createdAt": "2025-03-20T15:20:30Z",
-  "updatedAt": null
+  "rating":     5,
+  "content":    "Great place to visit!",
+  "createdAt":  "2025-03-20T15:20:30.123456Z",
+  "updatedAt":  null,
+  "imageUrls":  ["/api/reviews/images/<reviewId>/<file>.jpg"]
 }
 ```
 
-#### Update Review
+Image URLs are relative paths rooted at the shared origin; the iOS `NetworkManager.downloadImage` prepends `APIConstants.baseURL` when they start with `/api/reviews/images/`.
+
+## Health Endpoints
+
+Each service exposes a health probe outside the `/api` namespace:
 
 ```
-PUT /reviews
+GET /health
 ```
 
-Authorization: Required
+Response `200 OK`:
 
-Request:
 ```json
-{
-  "id": "7fa85f64-5717-4562-b3fc-2c963f66afad",
-  "rating": 5,
-  "content": "Great place to visit! The experience was even better than expected. Highly recommended."
-}
+{ "status": "healthy", "timestamp": "2026-04-18T12:00:00Z" }
 ```
 
-Response (200 OK):
-```json
-{
-  "id": "7fa85f64-5717-4562-b3fc-2c963f66afad",
-  "userId": "1fa85f64-5717-4562-b3fc-2c963f66afa1",
-  "locationId": "6fa85f64-5717-4562-b3fc-2c963f66afa9",
-  "rating": 5,
-  "content": "Great place to visit! The experience was even better than expected. Highly recommended.",
-  "createdAt": "2025-03-20T15:20:30Z",
-  "updatedAt": "2025-03-20T16:05:15Z"
-}
-```
-
-#### Delete Review
-
-```
-DELETE /reviews/{id}
-```
-
-Authorization: Required
-
-Response (204 No Content)
+The route prefix is `/health` (not `/api/health`) because the controller is annotated `[Route("[controller]")]`.
 
 ## Error Handling
 
-All APIs follow a consistent error handling approach:
-
-### Error Response Format
+Unsuccessful responses carry a JSON body with at least a `message` field:
 
 ```json
-{
-  "statusCode": 400,
-  "message": "Error message details"
-}
+{ "message": "You can only access your own user information" }
 ```
 
-### Common HTTP Status Codes
-
-- **200 OK**: The request was successful
-- **201 Created**: The resource was successfully created
-- **204 No Content**: The request was successful, but there is no content to return
-- **400 Bad Request**: The request was invalid or cannot be served
-- **401 Unauthorized**: Authentication is required or failed
-- **403 Forbidden**: The authenticated user does not have the required permissions
-- **404 Not Found**: The requested resource does not exist
-- **500 Internal Server Error**: An unexpected error occurred on the server
-
-### Validation Errors
-
-When validation fails, a 400 Bad Request response is returned with details about the validation errors:
+Validation failures from `[ApiController]` model-binding (e.g. a malformed `ChangePasswordDto`) follow the ASP.NET Core ProblemDetails format:
 
 ```json
 {
-  "statusCode": 400,
-  "message": "Validation error",
+  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
   "errors": {
-    "username": [
-      "Username must be at least 3 characters"
-    ],
-    "password": [
-      "Password must contain at least one uppercase letter",
-      "Password must contain at least one number"
-    ]
+    "NewPassword": ["The field NewPassword must be a string or array type with a minimum length of '8'."]
   }
 }
 ```
 
-### Authentication Errors
+### HTTP status codes in use
 
-When authentication fails, a 401 Unauthorized response is returned:
+- `200 OK` — success with a body
+- `201 Created` — resource created (with `Location` header)
+- `204 No Content` — success with no body
+- `400 Bad Request` — validation or domain-rule failure
+- `401 Unauthorized` — missing / invalid / expired token
+- `403 Forbidden` — authenticated but not permitted (role or ownership check)
+- `404 Not Found` — resource does not exist
+- `500 Internal Server Error` — unhandled exception
 
-```json
-{
-  "statusCode": 401,
-  "message": "Invalid username or password"
-}
+## App-iOS.2 Integration Guide
+
+This section documents the iOS client at `App-iOS.2/InteractiveMap/InteractiveMap/`.
+
+### Base URL resolution (`Utilities/APIConstants.swift`)
+
+`APIConstants.baseURL` is resolved at runtime:
+
+1. If a non-empty override has been stored under `UserDefaults` key `custom_api_base_url`, use it.
+2. Otherwise use the compiled-in default `http://ec2-63-177-81-123.eu-central-1.compute.amazonaws.com`.
+
+Any trailing slash is stripped. Service URLs are computed from `baseURL`:
+
+```swift
+userServiceURL     → baseURL + "/api/users"
+authServiceURL     → baseURL + "/api/auth"
+locationServiceURL → baseURL + "/api/locations"
+reviewServiceURL   → baseURL + "/api/reviews"
 ```
 
-Or when the token is invalid or expired:
+The override can be set from the Developer Settings screen via `APIConstants.setCustomBaseURL(_:)`. A valid URL must parse with a scheme and host; otherwise the call returns `false` and makes no change. `APIConstants.resetToDefault()` clears the override. On mutation, `APIConstants.baseURLDidChangeNotification` is posted so dependent views can refresh.
 
-```json
-{
-  "statusCode": 401,
-  "message": "Invalid or expired token"
-}
+The type carries a doc comment reminding editors that the backend is HTTP-only and that `NSAllowsArbitraryLoads` in `Info.plist` permits the plain-HTTP traffic.
+
+### ATS configuration (`Info.plist`)
+
+```xml
+<key>NSAppTransportSecurity</key>
+<dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+</dict>
 ```
 
-### Authorization Errors
+Also declared: `NSPhotoLibraryUsageDescription`, `NSCameraUsageDescription` for the review-image flow.
 
-When the authenticated user does not have permission to access a resource:
+### Token storage (`Utilities/TokenManager.swift`)
 
-```json
-{
-  "statusCode": 403,
-  "message": "You do not have permission to access this resource"
-}
-```
+The JWT is stored in the iOS Keychain under `auth_token` via `KeychainSwift`. On read, `TokenManager` decodes the payload and clears the token if `exp` is in the past. `isAuthenticated` is simply `getToken() != nil`.
+
+### Network layer (`Utilities/NetworkManager.swift`)
+
+A single Alamofire-based `NetworkManager.shared.request(_:method:parameters:headers:authenticated:completion:)` handles every call. Notable behaviors:
+
+- GET requests use `URLEncoding.default`; everything else uses `JSONEncoding.default`.
+- When `authenticated: true`, a `Bearer <token>` header is attached; if no token is available, the request fails immediately with a 401 error and the app posts `NSNotification.Name("AuthenticationFailed")`.
+- A custom `dateDecodingStrategy` tries multiple ISO-8601 variants (with/without fractional seconds, with/without trailing `Z`) plus `ISO8601DateFormatter` fallbacks, so the various date encodings coming out of the backend services all parse.
+- `204 No Content` responses decode to the `EmptyResponse` helper struct when `T == EmptyResponse`; otherwise they surface as an error.
+- `downloadImage(from:)` accepts either `/api/reviews/images/...` relative paths, fully-qualified `http(s)://` URLs, or bare relative paths, normalizing all three against `APIConstants.baseURL`.
+
+### Service → endpoint map
+
+| Swift call                                                                  | HTTP                                              |
+|-----------------------------------------------------------------------------|---------------------------------------------------|
+| `AuthService.login`                                                         | `POST /api/auth/login` (JSON)                     |
+| `AuthService.register`                                                      | `POST /api/users` (JSON)                          |
+| `AuthService.logout`                                                        | (local only — clears keychain)                    |
+| `UserService.getCurrentUser`                                                | `GET /api/users/me` (auth)                        |
+| `UserService.changePassword`                                                | `POST /api/users/change-password` (auth, JSON)    |
+| `UserService.deleteAccount`                                                 | `DELETE /api/users/delete-account` (auth, JSON)   |
+| `LocationService.getLocations`                                              | `GET /api/locations`                              |
+| `LocationService.getLocation(id:)`                                          | `GET /api/locations/{id}`                         |
+| `LocationService.getNearbyLocations(latitude:longitude:radiusKm:)`          | `GET /api/locations/nearby?latitude&longitude&radiusKm` |
+| `ReviewService.getReviewsForLocation(locationId:)`                          | `GET /api/reviews/by-location/{locationId}`       |
+| `ReviewService.createReview(locationId:rating:content:)`                    | `POST /api/reviews/json` (auth, JSON)             |
+| `ReviewService.createReviewWithImages(request:)`                            | `POST /api/reviews` (auth, multipart/form-data)   |
+
+The `/nearby` call encodes its numeric parameters via Alamofire's parameter dictionary (not hand-rolled query strings) to avoid locale-specific decimal separators. The `/json` review-creation call sets `Content-Type: application/json` explicitly so the body survives nginx forwarding unchanged.
+
+### Model ↔ DTO mapping
+
+| Swift type                   | Backend DTO                                       | Notes |
+|------------------------------|---------------------------------------------------|-------|
+| `User` (`Models/User.swift`) | `UserDto`                                         | `role` decoded as `Int` (0/1/2); `lastLoginDate` optional string |
+| `Location` (`Models/Location.swift`) | `LocationDto`                             | Matches exactly; `updatedAt` optional, `details` non-optional array |
+| `LocationDetail`             | `LocationDetailDto`                               | Matches exactly |
+| `Review` (`Models/Review.swift`) | `ReviewDto`                                   | Swift parses `createdAt`/`updatedAt` as `Date`; `imageUrls` non-optional array |
+| `LoginRequest` / `LoginResponse` | `LoginRequestDto` / `{ token }`               | |
+| `CreateReviewRequest` (`Codable`) | `CreateReviewDto`                            | Used by `/api/reviews/json`; `imageUrls` omitted (server defaults to []) |
+| `CreateReviewWithImagesRequest` (not `Codable`) | `CreateReviewWithImagesDto`    | Built into a multipart body in `ReviewService.swift` |
+| `ChangePasswordRequest`      | `ChangePasswordDto`                               | Same three fields |
+| `DeleteAccountRequest`       | `DeleteAccountDto`                                | `currentPassword` only |
+| `RegisterResponse`           | `UserDto` (subset)                                | Returned by `POST /api/users` |
+| `EmptyResponse`              | —                                                 | Sentinel for `204 No Content` |
+
+### Caching (`CacheManager`)
+
+The `LocationService` and `ReviewService` Swift classes do cache-first reads: they return the cached value immediately (if present) and kick off a background network refresh that updates the cache. Nearby-location network failures fall back to cached locations within the requested radius using a local great-circle distance calculation.

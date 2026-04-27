@@ -8,7 +8,7 @@
 import Foundation
 import KeychainSwift
 
-class TokenManager {
+@MainActor final class TokenManager {
     static let shared = TokenManager()
     
     private let keychain = KeychainSwift()

@@ -131,7 +131,7 @@ struct ChangePasswordView: View {
     }
 }
 
-class ChangePasswordViewModel: ObservableObject {
+@MainActor final class ChangePasswordViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     
