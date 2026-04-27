@@ -133,11 +133,13 @@ public class Startup
         var awsSecretKey = _configuration["S3:SecretKey"];
         var awsRegion = _configuration["S3:Region"] ?? "us-east-1";
 
+        // Region must always be set — AmazonS3Client throws at construction if missing
+        Environment.SetEnvironmentVariable("AWS_DEFAULT_REGION", awsRegion);
+
         if (!string.IsNullOrEmpty(awsAccessKey) && !string.IsNullOrEmpty(awsSecretKey))
         {
             Environment.SetEnvironmentVariable("AWS_ACCESS_KEY_ID", awsAccessKey);
             Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", awsSecretKey);
-            Environment.SetEnvironmentVariable("AWS_DEFAULT_REGION", awsRegion);
         }
     }
 

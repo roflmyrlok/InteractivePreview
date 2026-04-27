@@ -1,3 +1,5 @@
+using Amazon;
+using Amazon.Extensions.NETCore.Setup;
 using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -18,23 +20,28 @@ public static class ServiceCollectionExtensions
 			options.UseNpgsql(
 				configuration.GetConnectionString("DefaultConnection"),
 				b => b.MigrationsAssembly(typeof(ReviewDbContext).Assembly.FullName)));
-            
+
 		services.AddScoped<IReviewRepository, ReviewRepository>();
-		
+
 		services.Configure<ServicesConfiguration>(configuration.GetSection("Services"));
 		services.Configure<S3Configuration>(configuration.GetSection("S3"));
-		
-		services.AddHttpClient<ILocationService, HttpLocationService>((serviceProvider, client) => 
+
+		services.AddHttpClient<ILocationService, HttpLocationService>((serviceProvider, client) =>
 		{
 			var servicesConfig = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServicesConfiguration>>().Value;
 			client.BaseAddress = new Uri(servicesConfig.LocationService.BaseUrl);
 			client.Timeout = TimeSpan.FromSeconds(5);
 		});
 
-		// Register AWS S3 client
+		// Register AWS S3 client with explicit region so IConfiguration ambiguity doesn't suppress the env var
+		var region = configuration["S3:Region"] ?? "us-east-1";
+		services.AddDefaultAWSOptions(new AWSOptions
+		{
+			Region = RegionEndpoint.GetBySystemName(region)
+		});
 		services.AddAWSService<IAmazonS3>();
 		services.AddScoped<IImageUploadService, S3ImageUploadService>();
-    
+
 		return services;
 	}
 }
