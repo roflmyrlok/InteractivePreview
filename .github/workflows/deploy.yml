@@ -49,5 +49,5 @@ jobs:
       - name: Pull and restart all services
         run: |
           cd ci-cd
-          docker compose pull
-          docker compose up -d --force-recreate
+          docker-compose pull
+          docker-compose up -d --force-recreate

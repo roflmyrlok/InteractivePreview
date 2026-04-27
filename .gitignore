@@ -30,3 +30,4 @@ logs/
 # Docker volumes data
 **/postgres-data/
 **/postgres-data-local/
+ci-cd/.env
