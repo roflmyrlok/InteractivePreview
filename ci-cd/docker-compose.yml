@@ -37,7 +37,8 @@ services:
       - microservices-network
 
   userservice:
-    platform: linux/amd64   # EC2 target is x86-64; build/run AMD64 image
+    platform: linux/arm64
+    image: ${DOCKERHUB_USERNAME}/userservice:latest
     build:
       context: ../backend/UserService
       dockerfile: Dockerfile
@@ -59,7 +60,8 @@ services:
       - microservices-network
       
   reviewservice:
-    platform: linux/amd64
+    platform: linux/arm64
+    image: ${DOCKERHUB_USERNAME}/reviewservice:latest
     build:
       context: ../backend/ReviewService
       dockerfile: Dockerfile
@@ -92,7 +94,8 @@ services:
       - microservices-network
 
   locationservice:
-    platform: linux/amd64
+    platform: linux/arm64
+    image: ${DOCKERHUB_USERNAME}/locationservice:latest
     build:
       context: ../backend/LocationService
       dockerfile: Dockerfile
