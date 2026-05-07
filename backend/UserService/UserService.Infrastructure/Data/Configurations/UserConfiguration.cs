@@ -26,7 +26,14 @@ namespace UserService.Infrastructure.Data.Configurations
 
 			builder.Property(u => u.LastName)
 				.HasMaxLength(50);
-			
+
+			// Persist as int (Regular=0, Admin=1, SuperAdmin=2, ServiceAccount=3).
+			// Existing rows backfill to Regular via the HasDefaultValue.
+			builder.Property(u => u.Role)
+				.IsRequired()
+				.HasConversion<int>()
+				.HasDefaultValue(UserRole.Regular);
+
 			builder.HasIndex(u => u.Email).IsUnique();
 		}
 	}
