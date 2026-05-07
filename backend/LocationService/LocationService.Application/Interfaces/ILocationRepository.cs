@@ -12,6 +12,21 @@ namespace LocationService.Application.Interfaces
 		Task UpdateAsync(Location location);
 		Task DeleteAsync(Guid id);
 		Task<bool> ExistsAsync(Guid id);
+
+		// Returns a tracked Location (with Details loaded) suitable for mutation.
+		// Returns null if not found OR soft-deleted.
+		Task<Location?> GetForUpdateAsync(Guid id);
+
+		// Removes a LocationDetail from change tracker (so SaveChanges deletes it).
+		void RemoveDetail(LocationDetail detail);
+
+		// Persists pending changes. Throws ConcurrencyConflictException on RowVersion mismatch.
+		Task SaveChangesAsync(CancellationToken ct = default);
+	}
+
+	public class ConcurrencyConflictException : Exception
+	{
+		public ConcurrencyConflictException() : base("RowVersion mismatch") { }
 	}
 
 	public interface ILocationDetailRepository

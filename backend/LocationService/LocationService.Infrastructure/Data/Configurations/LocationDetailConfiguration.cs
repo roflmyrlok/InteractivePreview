@@ -8,14 +8,24 @@ namespace LocationService.Infrastructure.Data.Configurations
     {
         public void Configure(EntityTypeBuilder<LocationDetail> builder)
         {
-            builder.HasKey(ld => ld.Id);
+            builder.HasKey(d => d.Id);
 
-            builder.Property(ld => ld.PropertyName)
+            builder.Property(d => d.LocationId).IsRequired();
+
+            builder.Property(d => d.PropertyName)
                 .IsRequired()
-                .HasMaxLength(100);
+                .HasMaxLength(50);
 
-            builder.Property(ld => ld.PropertyValue)
-                .IsRequired();
+            builder.Property(d => d.PropertyValue)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            builder.HasOne(d => d.Location)
+                .WithMany(l => l.Details)
+                .HasForeignKey(d => d.LocationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasIndex(d => new { d.LocationId, d.PropertyName }).IsUnique();
         }
     }
 }

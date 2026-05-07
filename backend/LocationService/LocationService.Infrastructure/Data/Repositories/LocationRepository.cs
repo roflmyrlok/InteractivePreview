@@ -64,6 +64,30 @@ namespace LocationService.Infrastructure.Data.Repositories
         {
             return await _context.Locations.AnyAsync(l => l.Id == id);
         }
+
+        public async Task<Location?> GetForUpdateAsync(Guid id)
+        {
+            return await _context.Locations
+                .Include(l => l.Details)
+                .FirstOrDefaultAsync(l => l.Id == id);
+        }
+
+        public void RemoveDetail(LocationDetail detail)
+        {
+            _context.LocationDetails.Remove(detail);
+        }
+
+        public async Task SaveChangesAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                await _context.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                throw new ConcurrencyConflictException();
+            }
+        }
     }
 
     public class LocationDetailRepository : ILocationDetailRepository

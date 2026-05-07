@@ -1,10 +1,13 @@
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using LocationService.API.Auth;
 using LocationService.API.Middleware;
 using LocationService.Application.Extensions;
+using LocationService.Application.Interfaces;
 using LocationService.Infrastructure.Data;
 using LocationService.Infrastructure.Extensions;
 
@@ -39,23 +42,58 @@ public class Startup
     public void ConfigureServices(IServiceCollection services)
     {
         services.AddControllers();
-        services.AddLogging(configure => 
+        services.AddLogging(configure =>
         {
             configure.AddConsole();
             configure.AddDebug();
         });
-        
-        var connectionString = _configuration.GetConnectionString("DefaultConnection") 
+
+        var connectionString = _configuration.GetConnectionString("DefaultConnection")
                                ?? throw new InvalidOperationException("Connection string not configured");
-        
+
         services.AddDbContext<LocationDbContext>(options =>
             options.UseNpgsql(connectionString));
 
         services.AddEndpointsApiExplorer();
         ConfigureSwagger(services);
-        
+
+        ConfigureJwtAuthentication(services);
+        services.AddAuthorization();
+
+        // Current-user accessor used by command handlers to populate DeletedByUserId etc.
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+
         services.AddApplicationServices();
         services.AddInfrastructureServices(_configuration);
+    }
+
+    private void ConfigureJwtAuthentication(IServiceCollection services)
+    {
+        var jwtKey = _configuration["Jwt:Key"]
+                     ?? throw new InvalidOperationException("Jwt:Key is not configured");
+        var jwtIssuer = _configuration["Jwt:Issuer"]
+                        ?? throw new InvalidOperationException("Jwt:Issuer is not configured");
+        var jwtAudience = _configuration["Jwt:Audience"]
+                          ?? throw new InvalidOperationException("Jwt:Audience is not configured");
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = jwtIssuer,
+                    ValidAudience = jwtAudience,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+                    ClockSkew = TimeSpan.Zero,
+                    RoleClaimType = ClaimTypes.Role,
+                    NameClaimType = ClaimTypes.Name
+                };
+            });
     }
 
     private void ConfigureSwagger(IServiceCollection services)
@@ -63,7 +101,7 @@ public class Startup
         services.AddSwaggerGen(c =>
         {
             c.SwaggerDoc("v1", new OpenApiInfo { Title = "Location Service API", Version = "v1" });
-            
+
             c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
                 Description = "JWT Authorization header using the Bearer scheme",
@@ -93,7 +131,7 @@ public class Startup
 
     public void Configure(IApplicationBuilder app, IWebHostEnvironment env, LocationDbContext context, ILogger<Startup> logger)
     {
-        try 
+        try
         {
             context.Database.Migrate();
             logger.LogInformation("Database migration completed successfully.");
@@ -111,13 +149,13 @@ public class Startup
         }
 
         app.UseHttpsRedirection();
-        
+
         app.UseCustomErrorHandling();
 
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
-        
+
         app.UseEndpoints(endpoints =>
         {
             endpoints.MapControllers();

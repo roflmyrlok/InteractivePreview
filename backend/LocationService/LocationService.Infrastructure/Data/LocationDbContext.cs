@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using LocationService.Domain.Entities;
+using LocationService.Infrastructure.Data.Configurations;
 
 namespace LocationService.Infrastructure.Data
 {
@@ -15,48 +16,9 @@ namespace LocationService.Infrastructure.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.Entity<Location>(entity =>
-            {
-                entity.HasKey(l => l.Id);
-
-                entity.Property(l => l.Latitude)
-                    .IsRequired();
-
-                entity.Property(l => l.Longitude)
-                    .IsRequired();
-
-                entity.Property(l => l.Address)
-                    .HasMaxLength(200);
-                
-                entity.HasMany(l => l.Details)
-                    .WithOne(d => d.Location)
-                    .HasForeignKey(d => d.LocationId)
-                    .OnDelete(DeleteBehavior.Cascade);
-            });
-            
-            modelBuilder.Entity<LocationDetail>(entity =>
-            {
-                entity.HasKey(d => d.Id);
-
-                entity.Property(d => d.LocationId)
-                    .IsRequired();
-
-                entity.Property(d => d.PropertyName)
-                    .IsRequired()
-                    .HasMaxLength(50);
-
-                entity.Property(d => d.PropertyValue)
-                    .IsRequired()
-                    .HasMaxLength(500);
-                
-                entity.HasOne(d => d.Location)
-                    .WithMany(l => l.Details)
-                    .HasForeignKey(d => d.LocationId)
-                    .OnDelete(DeleteBehavior.Cascade);
-                
-                entity.HasIndex(d => new { d.LocationId, d.PropertyName })
-                    .IsUnique();
-            });
+            // Single source of truth lives in the IEntityTypeConfiguration classes.
+            modelBuilder.ApplyConfiguration(new LocationConfiguration());
+            modelBuilder.ApplyConfiguration(new LocationDetailConfiguration());
 
             base.OnModelCreating(modelBuilder);
         }
