@@ -2,7 +2,9 @@ name: Deploy
 
 on:
   push:
-    branches: '**'
+    branches: [main]
+    # data-acquisition branch never triggers deploy — it only contains
+    # the DataAcquisition/ batch pipeline, not any deployable service.
 
 jobs:
   deploy:
@@ -45,6 +47,26 @@ jobs:
             ./backend/ReviewService
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/reviewservice:${{ github.sha }}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/reviewservice:latest
+
+      - name: Build and push SourceRegistryService
+        run: |
+          docker build \
+            --tag ${{ secrets.DOCKERHUB_USERNAME }}/sourceregistryservice:${{ github.sha }} \
+            --tag ${{ secrets.DOCKERHUB_USERNAME }}/sourceregistryservice:latest \
+            ./backend/SourceRegistryService
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/sourceregistryservice:${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/sourceregistryservice:latest
+
+      - name: Build admin SPA
+        run: |
+          cd admin-app
+          npm ci
+          npm run build
+          # Copy built files into the admin-dist volume via a temp container
+          docker run --rm \
+            -v "$(pwd)/dist:/src" \
+            -v "interactivepreview_admin-dist:/dst" \
+            alpine sh -c "cp -r /src/. /dst/"
 
       - name: Pull and restart all services
         env:
