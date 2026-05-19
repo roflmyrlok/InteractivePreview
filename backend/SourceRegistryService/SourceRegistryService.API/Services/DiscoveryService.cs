@@ -14,7 +14,7 @@ namespace SourceRegistryService.API.Services;
 public class DiscoveryService : IDiscoveryService
 {
     private const string AnthropicApiUrl = "https://api.anthropic.com/v1/messages";
-    private const string ModelId = "claude-sonnet-4-5-20250929";
+    private const string DefaultModelId = "claude-sonnet-4-6";
     private const string AnthropicVersion = "2023-06-01";
 
     private readonly HttpClient _http;
@@ -105,6 +105,7 @@ public class DiscoveryService : IDiscoveryService
     {
         var apiKey = _configuration["Anthropic:ApiKey"]
             ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");
+        var modelId = _configuration["Anthropic:Model"] ?? DefaultModelId;
 
         var oblastName = hromada.Oblast?.Name ?? "Ukraine";
         var prompt = "Search for official Ukrainian government websites (.gov.ua domains only) that publish\n"
@@ -125,7 +126,7 @@ public class DiscoveryService : IDiscoveryService
 
         var requestBody = new
         {
-            model = ModelId,
+            model = modelId,
             max_tokens = 2048,
             tools = new[]
             {

@@ -5,6 +5,7 @@ on:
     branches: [main]
     # data-acquisition branch never triggers deploy — it only contains
     # the DataAcquisition/ batch pipeline, not any deployable service.
+  workflow_dispatch:  # allow manual trigger from GitHub UI
 
 jobs:
   deploy:
@@ -76,3 +77,7 @@ jobs:
           cd ci-cd
           docker-compose pull
           docker-compose up -d --force-recreate
+
+      - name: Clean up Docker credentials
+        if: always()
+        run: rm -rf $DOCKER_CONFIG
