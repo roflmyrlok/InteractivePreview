@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "description": "Canonical Ukrainian civil shelter data schema. AI maps source fields to these PropertyNames. Derived from Kyiv City ArcGIS data (golden reference, ~80% completeness). Update this file as new fields become standard.",
+
+  "system_fields": [
+    {
+      "name": "Oblast",
+      "ua": "Область",
+      "example": "Київська",
+      "description": "Region name. Always injected by the orchestrator from the oblast folder, never from source data."
+    },
+    {
+      "name": "City",
+      "ua": "Місто/Громада",
+      "example": "Вишневе",
+      "description": "City or hromada name. Injected by orchestrator from the hromada folder."
+    },
+    {
+      "name": "DataSource",
+      "ua": "Джерело",
+      "example": "https://vyshneve-rada.gov.ua/...",
+      "description": "Source URL for traceability. Injected by orchestrator."
+    }
+  ],
+
+  "fields": [
+    {
+      "name": "District",
+      "ua": "Район",
+      "example": "Голосіївський",
+      "description": "Administrative district within a city or oblast"
+    },
+    {
+      "name": "ShelterType",
+      "ua": "Тип укриття",
+      "example": "Найпростіше укриття",
+      "description": "Primary classification of the shelter (legal/regulatory category)"
+    },
+    {
+      "name": "ShelterKind",
+      "ua": "Вид укриття",
+      "example": "Підвал",
+      "description": "Physical sub-type of the shelter space"
+    },
+    {
+      "name": "BuildingType",
+      "ua": "Тип будівлі",
+      "example": "Житловий будинок",
+      "description": "Type of building hosting the shelter"
+    },
+    {
+      "name": "Owner",
+      "ua": "Власник",
+      "example": "КП 'Керуюча компанія'",
+      "description": "Owner or managing organization name"
+    },
+    {
+      "name": "OwnershipType",
+      "ua": "Форма власності",
+      "example": "Комунальна",
+      "description": "Form of ownership (state, communal, private)"
+    },
+    {
+      "name": "Phone",
+      "ua": "Телефон",
+      "example": "+380441234567",
+      "description": "Contact phone number"
+    },
+    {
+      "name": "WorkingTime",
+      "ua": "Режим роботи",
+      "example": "Цілодобово",
+      "description": "Operating hours or access schedule"
+    },
+    {
+      "name": "Capacity",
+      "ua": "Місткість",
+      "example": "150",
+      "description": "Number of people the shelter can hold"
+    },
+    {
+      "name": "DisabledAccess",
+      "ua": "Доступність для людей з інвалідністю",
+      "example": "Наявний",
+      "description": "Accessibility features for persons with disabilities"
+    },
+    {
+      "name": "Description",
+      "ua": "Примітка",
+      "example": "Вхід з боку двору",
+      "description": "Free-text notes (entrance details, special instructions)"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "hromada": "Lutsk",
+  "sources": [
+    {
+      "local_path": "lutsk-shelters.kmz",
+      "url": "file://lutsk-shelters.kmz",
+      "description": "Lutsk Google My Maps KMZ export — 85 placemarks, addresses only (no coordinates), geocoding required at Ingestion stage."
+    }
+  ]
+}

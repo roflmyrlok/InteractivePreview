@@ -1,0 +1,504 @@
+═══════════════════════════════════════════════════════════════════════════════
+  UKRAINE SHELTER DATA — RESEARCH & INGESTION SYSTEM
+  Working guide
+═══════════════════════════════════════════════════════════════════════════════
+
+This document explains how the system is laid out, how to add a new oblast or
+hromada, and how to run end-to-end from a raw URL to records in the API.
+
+────────────────────────────────────────────────────────────────────────────────
+1. WHAT THIS SYSTEM DOES
+────────────────────────────────────────────────────────────────────────────────
+
+Civil shelter data for Ukraine is published in many different ways: Google My
+Maps exports (KMZ), municipal HTML pages, CSV/Excel exports, ArcGIS JSON. Each
+publisher uses different field names and most have <10% of the data we want.
+
+This system normalizes all of those into a single canonical schema and feeds
+them into the LocationService API (POST /api/locations).
+
+There are exactly two things you run:
+
+  1. Shelter.Research   — fetch + AI-map + deduplicate + write output.json
+  2. Shelter.Ingestion  — read output.json + POST every record to the API
+
+The output.json file is the contract between them. It is a reproducible
+artifact: re-running Research is safe (deduplication merges, never duplicates).
+
+────────────────────────────────────────────────────────────────────────────────
+2. DIRECTORY LAYOUT
+────────────────────────────────────────────────────────────────────────────────
+
+DataAcquisition/
+├── Schema/
+│   └── shelter-schema.json          ← canonical fields. Edit to add/remove
+│                                       a PropertyName. AI reads this file.
+│
+├── Oblasts/                         ← all data lives here
+│   ├── KyivOblast/
+│   │   ├── oblast-sources.json      ← oblast-wide sources (input)
+│   │   ├── hromadas/
+│   │   │   └── vyshneve/
+│   │   │       ├── sources.json     ← Vyshneve-specific sources (input)
+│   │   │       └── output.json      ← Vyshneve normalized records (output)
+│   │   └── output.json              ← MERGED across all hromadas (output,
+│   │                                   feeds Ingestion)
+│   └── Volyn/
+│       ├── oblast-sources.json
+│       └── hromadas/
+│           └── lutsk/
+│               ├── sources.json
+│               ├── lutsk-shelters.kmz   ← optional local file
+│               └── output.json
+│
+├── DataAcquisitionSolution/         ← all C# code
+│   ├── Shelter.Shared/              ← class library: parsers, AI, dedup, IO
+│   ├── Shelter.Research/            ← console app
+│   ├── Shelter.Ingestion/           ← console app
+│   └── Kyiv.Data/                   ← legacy Kyiv-only tool
+│
+├── .mapping-cache/                  ← AI field-mapping cache (auto, gitignored)
+└── guide.txt                        ← this file
+
+Inputs are everything in *sources.json files; outputs are output.json files.
+
+────────────────────────────────────────────────────────────────────────────────
+3. THE CANONICAL SCHEMA
+────────────────────────────────────────────────────────────────────────────────
+
+Schema/shelter-schema.json is the single source of truth. It has two sections:
+
+  system_fields  — Oblast, City, DataSource. Always injected by the Research
+                   runner from the folder name + source URL. NEVER mapped from
+                   source data.
+
+  fields         — District, ShelterType, ShelterKind, BuildingType, Owner,
+                   OwnershipType, Phone, WorkingTime, Capacity, DisabledAccess,
+                   Description. AI maps source fields onto these names.
+
+To add a new field:
+  1. Add an entry to fields[] in Schema/shelter-schema.json with name, ua,
+     example, description.
+  2. Run Shelter.Research with --remap so previously-cached AI mappings are
+     regenerated against the new schema.
+  3. The new field will appear in subsequent output.json files; ingestion
+     will pass it through to the API automatically (LocationDetail accepts
+     arbitrary key/value pairs).
+
+────────────────────────────────────────────────────────────────────────────────
+4. ADDING A NEW OBLAST
+────────────────────────────────────────────────────────────────────────────────
+
+Step 1.  Create the folder:
+           Oblasts/<OblastName>/
+
+Step 2.  Create oblast-sources.json (oblast-level sources, can be empty):
+
+           {
+             "oblast": "<OblastName>",
+             "sources": [
+               {
+                 "url": "https://oblast-civil-defense.gov.ua/shelters",
+                 "description": "Notes about this source"
+               }
+             ]
+           }
+
+Step 3.  For each known hromada (city/community), create a folder:
+
+           Oblasts/<OblastName>/hromadas/<hromada-slug>/sources.json
+
+         with:
+           {
+             "hromada": "<Hromada human-readable name>",
+             "sources": [
+               { "url": "...", "description": "..." },
+               { "local_path": "file.kmz", "url": "file://file.kmz",
+                 "description": "Local copy" }
+             ]
+           }
+
+Step 4.  Run research (see section 6).
+
+The hromada folder name is used as the City detail and as the matcher when an
+oblast-level source contains records spanning multiple hromadas. Use the
+Ukrainian name in lowercase, transliterated to ASCII (e.g. "vyshneve",
+"bila-tserkva"). The hromada display name comes from sources.json's "hromada"
+field.
+
+────────────────────────────────────────────────────────────────────────────────
+5. SOURCE FORMATS — WHAT JUST WORKS
+────────────────────────────────────────────────────────────────────────────────
+
+The SourceFetcher detects format automatically from URL/Content-Type/magic-
+bytes and picks the right parser:
+
+  KMZ (.kmz)            → KmzParser           Google My Maps exports
+  KML (.kml)            → KmlParser           plain KML
+  Esri / ArcGIS JSON    → EsriJsonParser      "features"+"attributes" envelope
+  CSV / TSV             → CsvParser           auto-detects ; , \t |
+  HTML page             → HtmlParser          tables, then <ul>/<ol>
+
+SPECIAL CASE — Google My Maps embedded in HTML:
+  If the URL is an HTML page, the fetcher scans it for either:
+   (a) a direct *.kmz link, or
+   (b) a Google My Maps "mid=" parameter
+  and follows the link to the KMZ export endpoint:
+     https://www.google.com/maps/d/kml?mid=<MAP_ID>
+  Both Vyshneve and Lutsk fall into this case.
+
+Local files:
+  Use   "local_path": "filename.kmz"   in sources.json. The path is resolved
+  relative to the sources.json file. The "url" field still has to be set
+  (use file://... — it's preserved as DataSource for traceability).
+
+If a publisher uses a format we don't have a parser for, add a new
+ISourceParser implementation in Shelter.Shared/Parsers/ and register it in
+Shelter.Research/Program.cs (the parsers[] array).
+
+────────────────────────────────────────────────────────────────────────────────
+6. RUNNING SHELTER.RESEARCH
+────────────────────────────────────────────────────────────────────────────────
+
+Set the Anthropic API key once per shell session:
+
+  export ANTHROPIC_API_KEY=sk-...
+
+From DataAcquisitionSolution/Shelter.Research/:
+
+  # Process the entire oblast (recommended after setup):
+  dotnet run -- --oblast KyivOblast
+
+  # Process one hromada only — useful when re-running after their page updated:
+  dotnet run -- --oblast KyivOblast --hromada vyshneve
+
+  # Re-merge hromada outputs into oblast output.json (no fetching, no AI):
+  dotnet run -- --oblast KyivOblast --merge-only
+
+  # Dry run — fetch+map+dedup but DO NOT write output.json:
+  dotnet run -- --oblast KyivOblast --dry-run
+
+  # Force AI to re-generate field mappings (after schema change or correction):
+  dotnet run -- --oblast KyivOblast --remap
+
+  # Pass the API key explicitly (instead of env var):
+  dotnet run -- --oblast KyivOblast --anthropic-key sk-...
+
+What happens during a full oblast run:
+
+  1. Read Oblasts/<O>/oblast-sources.json
+  2. For each oblast-level source: fetch → parse → AI map.
+       - Records are grouped into the existing hromada folders by matching the
+         hromada slug inside the address text.
+       - Records that match no hromada folder are saved under a "_unassigned"
+         folder for manual review.
+       - Each group is merged (deduplicated) into that hromada's output.json.
+  3. For each hromada folder under Oblasts/<O>/hromadas/:
+       Read sources.json → fetch each → AI map → merge into output.json.
+  4. Concatenate all hromada output.json files into Oblasts/<O>/output.json.
+
+The run is reproducible: AI mappings are cached per source URL, so a re-run
+produces the same field mapping. Deduplication is content-aware — see §8.
+
+────────────────────────────────────────────────────────────────────────────────
+7. RUNNING SHELTER.INGESTION (PUSHING TO API)
+────────────────────────────────────────────────────────────────────────────────
+
+The token must come from a user with role Admin, SuperAdmin, OR ServiceAccount.
+Best practice: create a dedicated ServiceAccount user (see §7b) and use its JWT
+for automation runs. Human admins should keep their own tokens for the website.
+
+From DataAcquisitionSolution/Shelter.Ingestion/:
+
+  # Default — UPSERT mode. Per record:
+  #   GET /api/locations/nearby (radius 50m) →
+  #     match found?  PATCH only the changed fields
+  #     no match?     POST a new record
+  dotnet run -- --file ../../Oblasts/KyivOblast/hromadas/vyshneve/output.json \
+                --api-url http://localhost:5000 --token <JWT>
+
+  # Upload a whole oblast (the merged output):
+  dotnet run -- --file ../../Oblasts/KyivOblast/output.json --token <JWT>
+
+  # Upload every output.json under Oblasts/:
+  dotnet run -- --dir ../../Oblasts --token <JWT>
+
+  # Legacy mode — POST every record without checking for duplicates:
+  dotnet run -- --file ... --mode create-only
+
+  # Dry run — print what would happen without sending HTTP:
+  dotnet run -- --file ... --dry-run
+
+If --api-url or --token are omitted, you'll be prompted interactively
+(token input is masked).
+
+UPSERT GUARANTEES:
+  - Re-running the same output.json against the same API state is a no-op.
+  - When a publisher updates a phone number, re-running pushes only that
+    one PATCH for that one record.
+  - Coordinates are NEVER changed via PATCH — a real shelter doesn't move.
+    If the source ships new coords, treat that as "delete + recreate" (manual).
+
+The Ingestion app does NOT call AI and never invents records. It is a thin
+HTTP loop over the output.json contract.
+
+Records without coordinates are SKIPPED with a warning. Geocode them upstream
+(extend Shelter.Research with a geocoding step) or fix the source.
+
+────────────────────────────────────────────────────────────────────────────────
+7b. AUTH & THE API SURFACE
+────────────────────────────────────────────────────────────────────────────────
+
+The LocationService API is partially public, partially protected:
+
+  PUBLIC (no auth):                       PROTECTED (JWT required):
+    GET    /api/locations                   POST   /api/locations
+    GET    /api/locations/{id}              PUT    /api/locations/{id}
+    GET    /api/locations/validate/{id}     PATCH  /api/locations/{id}
+    GET    /api/locations/nearby            DELETE /api/locations/{id}
+
+ROLE MATRIX:
+  POST/PUT/PATCH    Admin, SuperAdmin, ServiceAccount
+  DELETE            Admin, SuperAdmin only (NOT ServiceAccount —
+                    automation must never delete; humans only)
+
+JWT issuance is handled by UserService. Configure both services with the same
+Jwt:Key/Issuer/Audience values (see appsettings.json).
+
+ServiceAccount setup (one-time, on launch):
+  1. SuperAdmin created manually in the database (existing manual procedure).
+  2. SuperAdmin uses the admin tooling to create a User with role
+     UserRole.ServiceAccount (enum value 3) — e.g. username "shelter-ingest".
+  3. SuperAdmin obtains a JWT for that ServiceAccount via the standard login
+     flow (or a long-lived token-issuance endpoint if added later).
+  4. Store the resulting JWT in your CI/automation secret store. Pass it via
+     `--token` to Shelter.Ingestion. Rotate quarterly.
+
+OPTIMISTIC CONCURRENCY (PUT/PATCH/DELETE):
+  Every Location returns a `rowVersion` (uint) on GET — this is the ETag.
+  On PUT/PATCH/DELETE, send it back either in:
+    - the request body's `rowVersion` field, or
+    - the X-Row-Version header
+  If the server's current value differs (someone else changed the row in the
+  meantime), the API returns 409 Conflict. Re-GET the record and retry with
+  the fresh rowVersion. Shelter.Ingestion does this automatically.
+
+SOFT DELETE:
+  DELETE /api/locations/{id} sets IsDeleted=true on the row; the row is then
+  filtered out of every API read by EF Core's query filter. Nothing is ever
+  physically removed. To audit who deleted what, query the table directly with
+  IgnoreQueryFilters() — DeletedByUserId points back to UserService.
+
+────────────────────────────────────────────────────────────────────────────────
+8. HOW DEDUPLICATION & MERGING WORK
+────────────────────────────────────────────────────────────────────────────────
+
+The Deduplicator is the core merge logic. When new records arrive (from any
+source), each one is matched against existing records in the target output.json
+by a normalized address key:
+
+  - lowercase (Ukrainian-aware)
+  - punctuation stripped
+  - whitespace collapsed
+  - common street prefixes (вул., просп., пров., пл.) removed
+
+Match outcomes:
+
+  No match
+     → record is added as-is
+
+  Match (same address, both sources)
+     → existing record is KEPT.
+     → for every Detail field present in the incoming record but missing in
+       existing: copy it over.
+     → coordinates: filled if existing was missing.
+     → SourceUrl: appended as "url1; url2" so traceability is preserved.
+
+Example: oblast-level source has the address + ShelterType. Vyshneve's own
+page has the same address + Capacity + Phone. After merging Vyshneve into the
+oblast records, the merged record has all four fields.
+
+Conflict policy: if BOTH sources have a value for the same field but they
+differ, the existing value wins. Because hromada-level processing happens
+AFTER oblast-level for the same hromada folder, hromada-specific values
+effectively override oblast-level ones. (If you want a different policy
+later, edit Deduplicator.MergeDetails.)
+
+────────────────────────────────────────────────────────────────────────────────
+9. THE OUTPUT.JSON CONTRACT
+────────────────────────────────────────────────────────────────────────────────
+
+Every output.json — hromada-level or oblast-level — has the same shape:
+
+  {
+    "meta": {
+      "oblast": "Kyiv Oblast",
+      "hromada": "Vyshneve",                       (omitted at oblast level)
+      "generated_at": "2026-05-04T10:00:00Z",
+      "sources_used": [
+        {
+          "level": "hromada",
+          "name": "Vyshneve",
+          "url": "https://...",
+          "fetched_at": "...",
+          "records_added": 23,
+          "duplicates_merged": 4,
+          "fields_filled_by_merge": 12
+        }
+      ]
+    },
+    "records": [
+      {
+        "address": "вул. Лесі Українки, 5",
+        "latitude": 50.374,
+        "longitude": 30.372,
+        "details": [
+          { "property_name": "ShelterType", "property_value": "Підвал" },
+          { "property_name": "Oblast",      "property_value": "Kyiv Oblast" },
+          { "property_name": "City",        "property_value": "Vyshneve" },
+          { "property_name": "DataSource",  "property_value": "https://..." }
+        ],
+        "source_url": "https://..."
+      }
+    ]
+  }
+
+Hand-editing is supported: you can pre-curate output.json, then run Research
+again — your hand edits will survive (dedup keeps existing values).
+
+────────────────────────────────────────────────────────────────────────────────
+10. AI MAPPING CACHE
+────────────────────────────────────────────────────────────────────────────────
+
+When Shelter.Research first encounters a source URL, it asks Claude to map
+that source's field names onto the canonical schema. The result is saved to:
+
+  .mapping-cache/<sha256-prefix>.json
+
+  Example contents:
+  { "type": "ShelterType", "tel": "Phone", "objectid": null, ... }
+
+On every subsequent run, the cached mapping is reused — no API call. This is
+why runs are reproducible AND fast.
+
+When to invalidate the cache:
+  - You changed Schema/shelter-schema.json
+  - The source publisher changed their column names
+  - You want to manually correct a bad mapping
+
+Invalidate:
+  - All sources for an oblast:   dotnet run -- --oblast X --remap
+  - One source:                  hand-delete its file in .mapping-cache/
+  - A wrong mapping:             open the file and edit the JSON. The cache
+                                 is just a dictionary, no magic.
+
+────────────────────────────────────────────────────────────────────────────────
+11. END-TO-END EXAMPLE: VOLYN / LUTSK (FROM EXISTING KMZ)
+────────────────────────────────────────────────────────────────────────────────
+
+The Lutsk KMZ is already in place at:
+  Oblasts/Volyn/hromadas/lutsk/lutsk-shelters.kmz
+
+with Oblasts/Volyn/hromadas/lutsk/sources.json pointing at it as a local file.
+
+  cd DataAcquisitionSolution/Shelter.Research
+  export ANTHROPIC_API_KEY=sk-...
+  dotnet run -- --oblast Volyn --hromada lutsk --dry-run
+
+  → Parses 85 placemarks
+  → Asks AI for field mapping (cached at .mapping-cache/...)
+  → Logs what would be written to Oblasts/Volyn/hromadas/lutsk/output.json
+
+Drop --dry-run to actually write the file. Then:
+
+  cd ../Shelter.Ingestion
+  dotnet run -- --file ../../Oblasts/Volyn/hromadas/lutsk/output.json \
+                --api-url http://localhost:5000 --token <JWT>
+
+NOTE: the Lutsk KMZ has addresses but no coordinates. Records without
+coordinates are skipped at ingestion time. Either:
+  - Add geocoding to Shelter.Research before writing output.json, or
+  - Hand-edit output.json after the dry run to add coordinates, or
+  - Find a more complete data source for Lutsk and add it to sources.json
+    (the dedup will fill in the coordinates on next merge).
+
+────────────────────────────────────────────────────────────────────────────────
+12. END-TO-END EXAMPLE: KYIV OBLAST (TOP-DOWN)
+────────────────────────────────────────────────────────────────────────────────
+
+Already configured:
+  Oblasts/KyivOblast/oblast-sources.json
+    └── https://koda.gov.ua/.../ukryttya/
+  Oblasts/KyivOblast/hromadas/vyshneve/sources.json
+    └── https://vyshneve-rada.gov.ua/.../8021-2.html
+
+Both URLs are HTML pages that link to Google My Maps. SourceFetcher follows
+those links automatically and parses the linked KMZ.
+
+To process the whole oblast:
+
+  cd DataAcquisitionSolution/Shelter.Research
+  dotnet run -- --oblast KyivOblast
+
+What happens:
+  1. Fetches koda.gov.ua page → finds Google My Maps link → fetches KMZ
+  2. AI maps fields → distributes records to hromada folders by address
+     (records mentioning "vyshneve" go to vyshneve/output.json; the rest go
+      to _unassigned)
+  3. Then iterates hromadas/. For Vyshneve: fetches their page → finds
+     Google Maps link → fetches KMZ → AI maps → merges into the records
+     already deposited there from step 2.
+  4. Writes Oblasts/KyivOblast/output.json (concatenation of all hromadas)
+
+Then upload:
+
+  cd ../Shelter.Ingestion
+  dotnet run -- --file ../../Oblasts/KyivOblast/output.json --token <JWT>
+
+To add Brovary as another hromada:
+  1. mkdir Oblasts/KyivOblast/hromadas/brovary
+  2. Create Oblasts/KyivOblast/hromadas/brovary/sources.json with their URL
+  3. dotnet run -- --oblast KyivOblast --hromada brovary
+  4. dotnet run -- --oblast KyivOblast --merge-only   (re-merge into oblast)
+
+────────────────────────────────────────────────────────────────────────────────
+13. TROUBLESHOOTING
+────────────────────────────────────────────────────────────────────────────────
+
+"No parser matched url=... contentType=..."
+  The SourceFetcher couldn't recognize the format. Either the source returned
+  an error page (check the URL in a browser) or the format is new. Add a new
+  ISourceParser if needed.
+
+"Page links to Google My Maps KMZ: ..." then nothing happens
+  Google may rate-limit or geo-restrict. Try downloading the KMZ manually,
+  drop it next to sources.json, and use local_path.
+
+AI mapping seems wrong (e.g. mapped "owner" to ShelterType)
+  Open .mapping-cache/<hash>.json, edit the values, save. Re-run — the cache
+  is consulted before calling the API. Or run with --remap to force fresh
+  mapping after improving Schema/shelter-schema.json.
+
+Records without coordinates are skipped at ingestion
+  Expected. Add coordinates either in source data, manually, or via geocoding
+  in Shelter.Research. The Schema and Ingestion don't care WHERE coordinates
+  come from, only that they're present at upload time.
+
+"Records that didn't match any hromada folder (saved under _unassigned)"
+  The address didn't contain any registered hromada slug. Either:
+   - Add the missing hromada folder (steps in §4) and re-run
+   - Or accept that those records belong to a hromada you haven't curated yet
+
+────────────────────────────────────────────────────────────────────────────────
+14. WHAT TO REMEMBER
+────────────────────────────────────────────────────────────────────────────────
+
+  • Schema/shelter-schema.json = the only "ideal data" definition
+  • output.json = the contract between Research and Ingestion
+  • Re-runs are SAFE — dedup never duplicates, only fills gaps
+  • Hand-editing output.json is supported and preserved
+  • One sources.json per hromada, one oblast-sources.json per oblast
+  • AI mapping is cached — first run pays, subsequent runs are free
+  • Ingestion is dumb-on-purpose: no AI, no parsing, just POST
+
+═══════════════════════════════════════════════════════════════════════════════

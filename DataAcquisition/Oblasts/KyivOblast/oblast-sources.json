@@ -1,0 +1,9 @@
+{
+  "oblast": "Kyiv Oblast",
+  "sources": [
+    {
+      "url": "https://koda.gov.ua/czyvilnyj-front/zahysni-sporudy-tochky-obigrivu/ukryttya/",
+      "description": "Kyiv Oblast Civil Defense — shelter map page. Likely links to a Google My Maps KMZ; SourceFetcher will follow that link."
+    }
+  ]
+}
