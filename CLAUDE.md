@@ -2,15 +2,16 @@
 
 ## Branch layout
 
-| Branch | Purpose | Deploys? |
+| Branch | Purpose | Merges to main? |
 |---|---|---|
-| `main` | Backend services, admin SPA, infra | Yes — via `.github/workflows/deploy.yml` |
-| `data-acquisition` | DataAcquisition batch pipeline only | Never |
+| `main` | Backend services, admin SPA, infra | — |
+| `data-acquisition` | DataAcquisition batch pipeline only | **Never** |
 
-**Never commit DataAcquisition/ changes to main.**
-**Never commit backend/admin-app/ci-cd changes to data-acquisition.**
+`data-acquisition` is a **permanent parallel branch**. It is never merged into `main` or any other branch. It exists solely so the pipeline code lives in the same repo without polluting the deployable surface. Treat it like a separate repo that happens to share the same git remote.
 
-The two branches are intentionally divergent — do not merge them into each other.
+- Do not open PRs from `data-acquisition` to `main`
+- Do not cherry-pick DataAcquisition/ commits onto `main`
+- Do not add backend/admin-app/ci-cd files to `data-acquisition`
 
 ## What lives where
 
