@@ -203,6 +203,7 @@
     },
     {
       "code": "UA32",
+      "katottgCode": "UA32000000000024050",
       "name": "Kyiv Oblast",
       "nameUk": "Київська область",
       "isOccupied": false,
@@ -231,7 +232,19 @@
         {"name": "Boryspilska Raion", "nameUk": "Бориспільський район", "slug": "boryspilska-raion"},
         {"name": "Zvenihorodka", "nameUk": "Звенигородка", "slug": "zvenihorodka"},
         {"name": "Stavyshche", "nameUk": "Ставище", "slug": "stavyshche"},
-        {"name": "Rokytne", "nameUk": "Рокитне", "slug": "rokytne"}
+        {"name": "Rokytne", "nameUk": "Рокитне", "slug": "rokytne"},
+        {"name": "Bilohorodka", "nameUk": "Білогородська", "slug": "bilohorodka", "katottgCode": "UA32080010000060215", "villages": [
+          {"name": "Bilohorodka", "nameUk": "Білогородка", "slug": "bilohorodka"},
+          {"name": "Bobrytsia", "nameUk": "Бобриця", "slug": "bobrytsia"},
+          {"name": "Hnativka", "nameUk": "Гнатівка", "slug": "hnativka"},
+          {"name": "Horenychi", "nameUk": "Гореничі", "slug": "horenychi"},
+          {"name": "Luka", "nameUk": "Лука", "slug": "luka"},
+          {"name": "Muzychi", "nameUk": "Музичі", "slug": "muzychi"},
+          {"name": "Nehrashi", "nameUk": "Неграші", "slug": "nehrashi"},
+          {"name": "Sviatopetrivske", "nameUk": "Святопетрівське", "slug": "sviatopetrivske"},
+          {"name": "Stoianka", "nameUk": "Стоянка", "slug": "stoianka"},
+          {"name": "Shevchenkove", "nameUk": "Шевченкове", "slug": "shevchenkove"}
+        ]}
       ]
     },
     {

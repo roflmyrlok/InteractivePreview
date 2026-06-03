@@ -28,6 +28,7 @@ public static class AdminSeeder
 
         var oblastsInserted = 0;
         var hromadasInserted = 0;
+        var villagesInserted = 0;
 
         foreach (var oblastData in data.Oblasts)
         {
@@ -49,6 +50,8 @@ public static class AdminSeeder
             oblast.Name = oblastData.Name;
             oblast.NameUk = oblastData.NameUk;
             oblast.IsOccupied = oblastData.IsOccupied;
+            if (!string.IsNullOrEmpty(oblastData.KatottgCode))
+                oblast.KatottgCode = oblastData.KatottgCode;
 
             foreach (var h in oblastData.Hromadas ?? [])
             {
@@ -57,7 +60,7 @@ public static class AdminSeeder
 
                 if (hromada == null)
                 {
-                    context.Hromadas.Add(new Hromada
+                    hromada = new Hromada
                     {
                         Id = Guid.NewGuid(),
                         OblastId = oblast.Id,
@@ -65,7 +68,8 @@ public static class AdminSeeder
                         CreatedAt = DateTime.UtcNow,
                         Name = h.Name,
                         NameUk = h.NameUk
-                    });
+                    };
+                    context.Hromadas.Add(hromada);
                     hromadasInserted++;
                 }
                 else
@@ -73,13 +77,44 @@ public static class AdminSeeder
                     hromada.Name = h.Name;
                     hromada.NameUk = h.NameUk;
                 }
+                if (!string.IsNullOrEmpty(h.KatottgCode))
+                    hromada.KatottgCode = h.KatottgCode;
+
+                // Upsert villages: match by (HromadaId, Slug); Slug is unique within a hromada.
+                foreach (var v in h.Villages ?? [])
+                {
+                    var village = await context.Villages.IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(x => x.HromadaId == hromada.Id && x.Slug == v.Slug);
+
+                    if (village == null)
+                    {
+                        context.Villages.Add(new Village
+                        {
+                            Id = Guid.NewGuid(),
+                            HromadaId = hromada.Id,
+                            Slug = v.Slug,
+                            CreatedAt = DateTime.UtcNow,
+                            Name = v.Name,
+                            NameUk = v.NameUk,
+                            KatottgCode = v.KatottgCode
+                        });
+                        villagesInserted++;
+                    }
+                    else
+                    {
+                        village.Name = v.Name;
+                        village.NameUk = v.NameUk;
+                        if (!string.IsNullOrEmpty(v.KatottgCode))
+                            village.KatottgCode = v.KatottgCode;
+                    }
+                }
             }
         }
 
         await context.SaveChangesAsync();
         logger.LogInformation(
-            "Seed sync complete — oblasts: +{O}, hromadas: +{H}",
-            oblastsInserted, hromadasInserted);
+            "Seed sync complete — oblasts: +{O}, hromadas: +{H}, villages: +{V}",
+            oblastsInserted, hromadasInserted, villagesInserted);
     }
 
     private class UkraineAdminData
@@ -90,6 +125,7 @@ public static class AdminSeeder
     private class OblastSeedEntry
     {
         public string Code { get; set; } = "";
+        public string KatottgCode { get; set; } = "";
         public string Name { get; set; } = "";
         public string NameUk { get; set; } = "";
         public bool IsOccupied { get; set; }
@@ -101,5 +137,15 @@ public static class AdminSeeder
         public string Name { get; set; } = "";
         public string NameUk { get; set; } = "";
         public string Slug { get; set; } = "";
+        public string KatottgCode { get; set; } = "";
+        public List<VillageSeedEntry> Villages { get; set; } = [];
+    }
+
+    private class VillageSeedEntry
+    {
+        public string Name { get; set; } = "";
+        public string NameUk { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string KatottgCode { get; set; } = "";
     }
 }

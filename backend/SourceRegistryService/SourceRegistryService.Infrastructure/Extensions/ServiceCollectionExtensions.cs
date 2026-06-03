@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IOblastRepository, OblastRepository>();
         services.AddScoped<IHromadaRepository, HromadaRepository>();
+        services.AddScoped<IVillageRepository, VillageRepository>();
         services.AddScoped<IDataSourceRepository, DataSourceRepository>();
         services.AddScoped<IDiscoveryRunRepository, DiscoveryRunRepository>();
 

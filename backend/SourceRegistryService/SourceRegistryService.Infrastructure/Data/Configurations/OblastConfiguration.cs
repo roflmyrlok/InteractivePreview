@@ -11,6 +11,7 @@ public class OblastConfiguration : IEntityTypeConfiguration<Oblast>
         builder.HasKey(o => o.Id);
         builder.Property(o => o.Code).IsRequired().HasMaxLength(10);
         builder.HasIndex(o => o.Code).IsUnique();
+        builder.Property(o => o.KatottgCode).HasMaxLength(30);
         builder.Property(o => o.Name).IsRequired().HasMaxLength(200);
         builder.Property(o => o.NameUk).IsRequired().HasMaxLength(200);
         builder.Property(o => o.IsOccupied).IsRequired().HasDefaultValue(false);

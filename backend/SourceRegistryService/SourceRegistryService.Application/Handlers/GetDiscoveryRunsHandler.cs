@@ -13,11 +13,12 @@ public class GetDiscoveryRunsHandler : IRequestHandler<GetDiscoveryRunsQuery, IE
 
     public async Task<IEnumerable<DiscoveryRunDto>> Handle(GetDiscoveryRunsQuery request, CancellationToken ct)
     {
-        var runs = await _runs.GetByHromadaIdAsync(request.HromadaId);
+        var runs = await _runs.GetByScopeAsync(request.ScopeType, request.ScopeId);
         return runs.OrderByDescending(r => r.StartedAt).Select(r => new DiscoveryRunDto
         {
             Id = r.Id,
-            HromadaId = r.HromadaId,
+            ScopeType = r.ScopeType,
+            ScopeId = r.ScopeId,
             StartedAt = r.StartedAt,
             CompletedAt = r.CompletedAt,
             CandidatesFound = r.CandidatesFound,

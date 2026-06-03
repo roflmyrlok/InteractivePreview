@@ -1,9 +1,13 @@
+using SourceRegistryService.Domain.Enums;
+
 namespace SourceRegistryService.Domain.Entities;
 
 public class DiscoveryRun
 {
     public Guid Id { get; set; }
-    public Guid HromadaId { get; set; }
+    // Polymorphic scope (mirrors DataSource): which tier this discovery ran against.
+    public ScopeType ScopeType { get; set; }
+    public Guid ScopeId { get; set; }
     public DateTime StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int CandidatesFound { get; set; }
@@ -14,6 +18,4 @@ public class DiscoveryRun
     public DateTime? DeletedAt { get; set; }
     public Guid? DeletedByUserId { get; set; }
     public uint RowVersion { get; set; }
-
-    public Hromada Hromada { get; set; } = null!;
 }

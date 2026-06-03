@@ -9,11 +9,13 @@ namespace SourceRegistryService.Application.Handlers;
 public class GetHromadaByIdHandler : IRequestHandler<GetHromadaByIdQuery, HromadaDetailDto?>
 {
     private readonly IHromadaRepository _hromadas;
+    private readonly IVillageRepository _villages;
     private readonly IDataSourceRepository _sources;
 
-    public GetHromadaByIdHandler(IHromadaRepository hromadas, IDataSourceRepository sources)
+    public GetHromadaByIdHandler(IHromadaRepository hromadas, IVillageRepository villages, IDataSourceRepository sources)
     {
         _hromadas = hromadas;
+        _villages = villages;
         _sources = sources;
     }
 
@@ -24,8 +26,26 @@ public class GetHromadaByIdHandler : IRequestHandler<GetHromadaByIdQuery, Hromad
 
         var sources = await _sources.GetByScopeAsync(ScopeType.Hromada, hromada.Id);
 
+        var villageDtos = new List<VillageSummaryDto>();
+        foreach (var v in await _villages.GetByHromadaIdAsync(hromada.Id))
+        {
+            var active = await _sources.GetByScopeAsync(ScopeType.Village, v.Id, DataSourceStatus.Active);
+            var pending = await _sources.GetByScopeAsync(ScopeType.Village, v.Id, DataSourceStatus.Pending);
+            villageDtos.Add(new VillageSummaryDto
+            {
+                Id = v.Id,
+                Name = v.Name,
+                NameUk = v.NameUk,
+                Slug = v.Slug,
+                KatottgCode = v.KatottgCode,
+                ActiveSourceCount = active.Count(),
+                PendingSourceCount = pending.Count()
+            });
+        }
+
         return new HromadaDetailDto
         {
+            Villages = villageDtos,
             Id = hromada.Id,
             OblastId = hromada.OblastId,
             OblastName = hromada.Oblast?.Name ?? "",

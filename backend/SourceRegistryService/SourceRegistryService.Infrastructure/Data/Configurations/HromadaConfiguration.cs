@@ -12,6 +12,7 @@ public class HromadaConfiguration : IEntityTypeConfiguration<Hromada>
         builder.Property(h => h.Name).IsRequired().HasMaxLength(200);
         builder.Property(h => h.NameUk).IsRequired().HasMaxLength(200);
         builder.Property(h => h.Slug).IsRequired().HasMaxLength(100);
+        builder.Property(h => h.KatottgCode).HasMaxLength(30);
         builder.HasIndex(h => new { h.OblastId, h.Slug }).IsUnique();
         builder.Property(h => h.IsDeleted).IsRequired().HasDefaultValue(false);
         builder.Property(h => h.DeletedAt);
@@ -24,6 +25,10 @@ public class HromadaConfiguration : IEntityTypeConfiguration<Hromada>
         // DataSource uses polymorphic ScopeType+ScopeId — no EF FK here.
         // Repositories filter by ScopeType+ScopeId directly.
         builder.Ignore(h => h.DataSources);
+        builder.HasMany(h => h.Villages)
+            .WithOne(v => v.Hromada)
+            .HasForeignKey(v => v.HromadaId)
+            .OnDelete(DeleteBehavior.Restrict);
         builder.HasQueryFilter(h => !h.IsDeleted);
     }
 }

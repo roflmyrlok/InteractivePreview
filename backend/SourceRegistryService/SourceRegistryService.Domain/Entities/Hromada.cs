@@ -7,6 +7,7 @@ public class Hromada
     public string Name { get; set; } = "";
     public string NameUk { get; set; } = "";
     public string Slug { get; set; } = "";
+    public string KatottgCode { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }
@@ -16,5 +17,5 @@ public class Hromada
 
     public Oblast Oblast { get; set; } = null!;
     public ICollection<DataSource> DataSources { get; set; } = new List<DataSource>();
-    public ICollection<DiscoveryRun> DiscoveryRuns { get; set; } = new List<DiscoveryRun>();
+    public ICollection<Village> Villages { get; set; } = new List<Village>();
 }

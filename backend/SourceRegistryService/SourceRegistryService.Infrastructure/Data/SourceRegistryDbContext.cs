@@ -11,6 +11,7 @@ public class SourceRegistryDbContext : DbContext
 
     public DbSet<Oblast> Oblasts { get; set; }
     public DbSet<Hromada> Hromadas { get; set; }
+    public DbSet<Village> Villages { get; set; }
     public DbSet<DataSource> DataSources { get; set; }
     public DbSet<DiscoveryRun> DiscoveryRuns { get; set; }
 
@@ -18,6 +19,7 @@ public class SourceRegistryDbContext : DbContext
     {
         modelBuilder.ApplyConfiguration(new OblastConfiguration());
         modelBuilder.ApplyConfiguration(new HromadaConfiguration());
+        modelBuilder.ApplyConfiguration(new VillageConfiguration());
         modelBuilder.ApplyConfiguration(new DataSourceConfiguration());
         modelBuilder.ApplyConfiguration(new DiscoveryRunConfiguration());
 
@@ -32,6 +34,11 @@ public class SourceRegistryDbContext : DbContext
             else if (entry.State == EntityState.Modified) entry.Entity.UpdatedAt = DateTime.UtcNow;
         }
         foreach (var entry in ChangeTracker.Entries<Hromada>())
+        {
+            if (entry.State == EntityState.Added) entry.Entity.CreatedAt = DateTime.UtcNow;
+            else if (entry.State == EntityState.Modified) entry.Entity.UpdatedAt = DateTime.UtcNow;
+        }
+        foreach (var entry in ChangeTracker.Entries<Village>())
         {
             if (entry.State == EntityState.Added) entry.Entity.CreatedAt = DateTime.UtcNow;
             else if (entry.State == EntityState.Modified) entry.Entity.UpdatedAt = DateTime.UtcNow;

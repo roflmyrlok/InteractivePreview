@@ -1,13 +1,13 @@
 namespace SourceRegistryService.Domain.Entities;
 
-public class Oblast
+public class Village
 {
     public Guid Id { get; set; }
-    public string Code { get; set; } = "";
-    public string KatottgCode { get; set; } = "";
+    public Guid HromadaId { get; set; }
     public string Name { get; set; } = "";
     public string NameUk { get; set; } = "";
-    public bool IsOccupied { get; set; }
+    public string Slug { get; set; } = "";
+    public string KatottgCode { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }
@@ -15,5 +15,6 @@ public class Oblast
     public Guid? DeletedByUserId { get; set; }
     public uint RowVersion { get; set; }
 
-    public ICollection<Hromada> Hromadas { get; set; } = new List<Hromada>();
+    public Hromada Hromada { get; set; } = null!;
+    public ICollection<DataSource> DataSources { get; set; } = new List<DataSource>();
 }

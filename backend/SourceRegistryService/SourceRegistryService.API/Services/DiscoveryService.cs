@@ -18,7 +18,9 @@ public class DiscoveryService : IDiscoveryService
     private const string AnthropicVersion = "2023-06-01";
 
     private readonly HttpClient _http;
+    private readonly IOblastRepository _oblasts;
     private readonly IHromadaRepository _hromadas;
+    private readonly IVillageRepository _villages;
     private readonly IDataSourceRepository _sources;
     private readonly IDiscoveryRunRepository _runs;
     private readonly ICurrentUserContext _user;
@@ -27,7 +29,9 @@ public class DiscoveryService : IDiscoveryService
 
     public DiscoveryService(
         IHttpClientFactory httpClientFactory,
+        IOblastRepository oblasts,
         IHromadaRepository hromadas,
+        IVillageRepository villages,
         IDataSourceRepository sources,
         IDiscoveryRunRepository runs,
         ICurrentUserContext user,
@@ -35,7 +39,9 @@ public class DiscoveryService : IDiscoveryService
         ILogger<DiscoveryService> logger)
     {
         _http = httpClientFactory.CreateClient("anthropic");
+        _oblasts = oblasts;
         _hromadas = hromadas;
+        _villages = villages;
         _sources = sources;
         _runs = runs;
         _user = user;
@@ -43,23 +49,24 @@ public class DiscoveryService : IDiscoveryService
         _logger = logger;
     }
 
-    public async Task<DiscoveryRunDto> RunAsync(Guid hromadaId, CancellationToken ct = default)
+    public async Task<DiscoveryRunDto> RunAsync(ScopeType scope, Guid scopeId, bool autoActivate, CancellationToken ct = default)
     {
-        var hromada = await _hromadas.GetByIdAsync(hromadaId)
-            ?? throw new KeyNotFoundException($"Hromada {hromadaId} not found");
+        var target = await ResolveTargetAsync(scope, scopeId);
 
         var run = await _runs.AddAsync(new DiscoveryRun
         {
             Id = Guid.NewGuid(),
-            HromadaId = hromadaId,
+            ScopeType = scope,
+            ScopeId = scopeId,
             StartedAt = DateTime.UtcNow,
             TriggeredByUserId = _user.UserId
         });
 
         try
         {
-            var candidates = await CallClaudeAsync(hromada, ct);
-            _logger.LogInformation("Claude returned {Count} candidates for {Hromada}", candidates.Count, hromada.Name);
+            var candidates = await CallClaudeAsync(target.Prompt, ct);
+            _logger.LogInformation("Claude returned {Count} candidates for {Scope} {Name}",
+                candidates.Count, scope, target.DisplayName);
 
             int inserted = 0;
             foreach (var candidate in candidates)
@@ -67,17 +74,17 @@ public class DiscoveryService : IDiscoveryService
                 if (!IsValidGovUaUrl(candidate.Url)) continue;
 
                 var alreadyExists = await _sources.ExistsByUrlAndScopeAsync(
-                    candidate.Url, ScopeType.Hromada, hromadaId);
+                    candidate.Url, scope, scopeId);
                 if (alreadyExists) continue;
 
                 await _sources.AddAsync(new DataSource
                 {
                     Id = Guid.NewGuid(),
-                    ScopeType = ScopeType.Hromada,
-                    ScopeId = hromadaId,
+                    ScopeType = scope,
+                    ScopeId = scopeId,
                     Url = candidate.Url,
                     Description = $"{candidate.PageTitle} — {candidate.WhyRelevant} (confidence: {candidate.Confidence})",
-                    Status = DataSourceStatus.Pending,
+                    Status = autoActivate ? DataSourceStatus.Active : DataSourceStatus.Pending,
                     Origin = DataSourceOrigin.AiDiscovered,
                     CreatedAt = DateTime.UtcNow,
                     CreatedByUserId = _user.UserId
@@ -101,16 +108,50 @@ public class DiscoveryService : IDiscoveryService
         }
     }
 
-    private async Task<List<DiscoveryCandidate>> CallClaudeAsync(Hromada hromada, CancellationToken ct)
-    {
-        var apiKey = _configuration["Anthropic:ApiKey"]
-            ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");
-        var modelId = _configuration["Anthropic:Model"] ?? DefaultModelId;
+    private record DiscoveryTarget(string DisplayName, string Prompt);
 
-        var oblastName = hromada.Oblast?.Name ?? "Ukraine";
-        var prompt = "Search for official Ukrainian government websites (.gov.ua domains only) that publish\n"
-            + $"civil shelter (укриття / захисні споруди) location data for {hromada.NameUk} ({hromada.Name})\n"
-            + $"in {oblastName}.\n\n"
+    // Resolve the unit and build a tier-aware web-search prompt with the full parent chain.
+    private async Task<DiscoveryTarget> ResolveTargetAsync(ScopeType scope, Guid scopeId)
+    {
+        switch (scope)
+        {
+            case ScopeType.Oblast:
+            {
+                var o = await _oblasts.GetByIdAsync(scopeId)
+                    ?? throw new KeyNotFoundException($"Oblast {scopeId} not found");
+                return new DiscoveryTarget(o.Name,
+                    BuildPrompt($"{o.NameUk} ({o.Name})", "oblast (область)", "in Ukraine"));
+            }
+            case ScopeType.Hromada:
+            {
+                var h = await _hromadas.GetByIdAsync(scopeId)
+                    ?? throw new KeyNotFoundException($"Hromada {scopeId} not found");
+                var oblastName = h.Oblast?.Name ?? "Ukraine";
+                return new DiscoveryTarget(h.Name,
+                    BuildPrompt($"{h.NameUk} ({h.Name})", "hromada (territorial community)", $"in {oblastName}"));
+            }
+            case ScopeType.Village:
+            {
+                var v = await _villages.GetByIdAsync(scopeId)
+                    ?? throw new KeyNotFoundException($"Village {scopeId} not found");
+                var hromadaName = v.Hromada?.Name ?? "";
+                var oblastName = v.Hromada?.Oblast?.Name ?? "Ukraine";
+                var ctx = string.IsNullOrEmpty(hromadaName)
+                    ? $"in {oblastName}"
+                    : $"in {hromadaName} hromada, {oblastName}";
+                return new DiscoveryTarget(v.Name,
+                    BuildPrompt($"{v.NameUk} ({v.Name})", "village (село)", ctx));
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unknown scope type");
+        }
+    }
+
+    private static string BuildPrompt(string unit, string unitKind, string locationContext)
+    {
+        return "Search for official Ukrainian government websites (.gov.ua domains only) that publish\n"
+            + $"civil shelter (укриття / захисні споруди) location data for the {unitKind} {unit}\n"
+            + $"{locationContext}.\n\n"
             + "Look specifically for:\n"
             + "- Hromada/city council pages listing shelter locations\n"
             + "- Civil defense department pages with shelter maps\n"
@@ -123,6 +164,13 @@ public class DiscoveryService : IDiscoveryService
             + "- Maximum 5 candidates\n"
             + "- If no results found, return {\"candidates\":[]}\n"
             + "- Return ONLY the JSON object, nothing else";
+    }
+
+    private async Task<List<DiscoveryCandidate>> CallClaudeAsync(string prompt, CancellationToken ct)
+    {
+        var apiKey = _configuration["Anthropic:ApiKey"]
+            ?? throw new InvalidOperationException("Anthropic:ApiKey not configured");
+        var modelId = _configuration["Anthropic:Model"] ?? DefaultModelId;
 
         var requestBody = new
         {
@@ -230,7 +278,8 @@ public class DiscoveryService : IDiscoveryService
     private static DiscoveryRunDto ToDto(DiscoveryRun run) => new()
     {
         Id = run.Id,
-        HromadaId = run.HromadaId,
+        ScopeType = run.ScopeType,
+        ScopeId = run.ScopeId,
         StartedAt = run.StartedAt,
         CompletedAt = run.CompletedAt,
         CandidatesFound = run.CandidatesFound,
