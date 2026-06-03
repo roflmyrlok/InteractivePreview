@@ -60,12 +60,15 @@ jobs:
 
       - name: Build admin SPA
         run: |
-          cd admin-app
-          npm ci
-          npm run build
+          # Build inside a Node container — the runner host has Docker but no Node.
+          # Use `npm install` (not `npm ci`): admin-app has no package-lock.json.
+          docker run --rm \
+            -v "$(pwd)/admin-app:/app" \
+            -w /app \
+            node:20-slim sh -c "npm install && npm run build"
           # Copy built files into the admin-dist volume via a temp container
           docker run --rm \
-            -v "$(pwd)/dist:/src" \
+            -v "$(pwd)/admin-app/dist:/src" \
             -v "interactivepreview_admin-dist:/dst" \
             alpine sh -c "cp -r /src/. /dst/"
 
