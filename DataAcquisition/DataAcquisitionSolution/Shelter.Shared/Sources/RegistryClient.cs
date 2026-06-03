@@ -87,12 +87,20 @@ public class RegistryClient(HttpClient http)
     }
 
     // POST /api/discovery/{scope}/{id}?autoActivate=... — kick off AI source discovery for a node.
-    // scope is "oblast" | "hromada" | "village".
-    public async Task TriggerDiscoveryAsync(string scope, Guid id, bool autoActivate, CancellationToken ct = default)
+    // scope is "oblast" | "hromada" | "village". Returns false on any failure so a single
+    // node's discovery error (e.g. the server's Anthropic key is rejected) does not abort the run.
+    public async Task<bool> TriggerDiscoveryAsync(string scope, Guid id, bool autoActivate, CancellationToken ct = default)
     {
         var url = $"/api/discovery/{scope}/{id}?autoActivate={(autoActivate ? "true" : "false")}";
-        using var resp = await http.PostAsync(url, null, ct);
-        resp.EnsureSuccessStatusCode();
+        try
+        {
+            using var resp = await http.PostAsync(url, null, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
     }
 
     // Resolve oblast code + hromada slug → hromada GUID.

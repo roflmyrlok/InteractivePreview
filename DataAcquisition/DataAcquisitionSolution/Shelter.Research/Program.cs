@@ -128,7 +128,8 @@ async Task RunRegistryModeAsync()
     {
         var oid = await registry.GetOblastIdAsync(oblast, ct);
         logger.LogInformation("[{O}] No Active oblast sources — running AI discovery", oblast);
-        await registry.TriggerDiscoveryAsync("oblast", oid, true, ct);
+        if (!await registry.TriggerDiscoveryAsync("oblast", oid, true, ct))
+            logger.LogWarning("[{O}] Discovery request failed — continuing without new oblast sources", oblast);
         oblastSources = await registry.GetOblastSourcesAsync(oblast, ct);
     }
     logger.LogInformation("[{O}] Oblast-level sources: {C}", oblast, oblastSources.Count);
@@ -151,7 +152,8 @@ async Task RunHromadaNodeAsync(string slug, Guid id)
     if (sources.Count == 0 && discover)
     {
         logger.LogInformation("[{O}/{H}] No Active sources — running AI discovery", oblast, slug);
-        await registry.TriggerDiscoveryAsync("hromada", id, true, ct);
+        if (!await registry.TriggerDiscoveryAsync("hromada", id, true, ct))
+            logger.LogWarning("[{O}/{H}] Discovery request failed — continuing without new sources", oblast, slug);
         sources = await registry.GetHromadaSourcesAsync(id, ct);
     }
     if (sources.Count > 0)
@@ -175,7 +177,8 @@ async Task RunVillageNodeAsync(string hromadaSlug, string villageSlug, Guid vill
     if (sources.Count == 0 && discover)
     {
         logger.LogInformation("[{O}/{H}/{V}] No Active sources — running AI discovery", oblast, hromadaSlug, villageSlug);
-        await registry.TriggerDiscoveryAsync("village", villageId, true, ct);
+        if (!await registry.TriggerDiscoveryAsync("village", villageId, true, ct))
+            logger.LogWarning("[{O}/{H}/{V}] Discovery request failed — continuing without new sources", oblast, hromadaSlug, villageSlug);
         sources = await registry.GetVillageSourcesAsync(villageId, ct);
     }
     if (sources.Count > 0)
