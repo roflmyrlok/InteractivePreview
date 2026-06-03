@@ -32,9 +32,12 @@ using Shelter.Shared.Sources;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 var oblast = GetArg(argv, "--oblast") ?? throw new ArgumentException("--oblast is required");
 var hromada = GetArg(argv, "--hromada");
+var village = GetArg(argv, "--village");
 var dryRun = argv.Contains("--dry-run");
 var mergeOnly = argv.Contains("--merge-only");
 var remap = argv.Contains("--remap");
+// --discover: when a node has no Active sources, run AI discovery (auto-activated) and re-fetch.
+var discover = argv.Contains("--discover");
 var anthropicKey = GetArg(argv, "--anthropic-key")
     ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
     ?? "";
@@ -80,82 +83,160 @@ if (string.IsNullOrEmpty(anthropicKey))
 }
 
 var research = BuildRunner();
+var ct = CancellationToken.None;
 
-if (!string.IsNullOrEmpty(hromada))
-{
-    if (registry != null)
-    {
-        var hromadaId = await registry.FindHromadaIdAsync(oblast, hromada, CancellationToken.None);
-        if (hromadaId == null)
-        {
-            logger.LogError("Hromada slug '{Slug}' not found under oblast '{Code}' in registry", hromada, oblast);
-            return 1;
-        }
-        var sources = await registry.GetHromadaSourcesAsync(hromadaId.Value, CancellationToken.None);
-        logger.LogInformation("[{Oblast}/{Hromada}] Registry sources: {Count}", oblast, hromada, sources.Count);
-        await research.RunHromadaAsync(oblast, hromada, dryRun, CancellationToken.None, sources);
-    }
-    else
-    {
-        await research.RunHromadaAsync(oblast, hromada, dryRun, CancellationToken.None);
-    }
-}
-else if (registry != null)
-{
-    // Registry mode: fetch all hromadas for this oblast code from the API
-    var oblastSources = await registry.GetOblastSourcesAsync(oblast, CancellationToken.None);
-    logger.LogInformation("[{Oblast}] Registry oblast-level sources: {Count}", oblast, oblastSources.Count);
-    await research.RunOblastLevelAsync(oblast, dryRun, CancellationToken.None, oblastSources);
+// Any tier can be the entry point; each recurses into all levels below it and merges upward.
+//   --oblast X                       → oblast + every hromada + every village
+//   --oblast X --hromada H           → hromada H + its villages
+//   --oblast X --hromada H --village V → village V only
+if (registry != null)
+    await RunRegistryModeAsync();
+else
+    await RunFilesystemModeAsync();
 
-    var hromadaIds = await registry.ListHromadaIdsAsync(oblast, CancellationToken.None);
-    foreach (var (slug, id) in hromadaIds)
+return 0;
+
+// ───────────────────────── Registry mode (automated, recursive) ─────────────────────────
+async Task RunRegistryModeAsync()
+{
+    if (!string.IsNullOrEmpty(village))
+    {
+        if (string.IsNullOrEmpty(hromada)) { logger.LogError("--village requires --hromada"); return; }
+        var hid = await registry!.FindHromadaIdAsync(oblast, hromada, ct);
+        if (hid == null) { logger.LogError("Hromada '{H}' not found under '{O}'", hromada, oblast); return; }
+        var match = (await registry.ListVillageIdsAsync(hid.Value, ct))
+            .FirstOrDefault(v => string.Equals(v.Slug, village, StringComparison.OrdinalIgnoreCase));
+        if (match == default) { logger.LogError("Village '{V}' not found under '{H}'", village, hromada); return; }
+        await RunVillageNodeAsync(hromada, village, match.Id);
+        research.MergeVillagesIntoHromada(oblast, hromada, dryRun);
+        if (!dryRun) research.MergeOblastOutput(oblast);
+        return;
+    }
+
+    if (!string.IsNullOrEmpty(hromada))
+    {
+        var hid = await registry!.FindHromadaIdAsync(oblast, hromada, ct);
+        if (hid == null) { logger.LogError("Hromada '{H}' not found under '{O}'", hromada, oblast); return; }
+        await RunHromadaNodeAsync(hromada, hid.Value);
+        if (!dryRun) research.MergeOblastOutput(oblast);
+        return;
+    }
+
+    // Whole oblast.
+    var oblastSources = await registry!.GetOblastSourcesAsync(oblast, ct);
+    if (oblastSources.Count == 0 && discover)
+    {
+        var oid = await registry.GetOblastIdAsync(oblast, ct);
+        logger.LogInformation("[{O}] No Active oblast sources — running AI discovery", oblast);
+        await registry.TriggerDiscoveryAsync("oblast", oid, true, ct);
+        oblastSources = await registry.GetOblastSourcesAsync(oblast, ct);
+    }
+    logger.LogInformation("[{O}] Oblast-level sources: {C}", oblast, oblastSources.Count);
+    await research.RunOblastLevelAsync(oblast, dryRun, ct, oblastSources);
+
+    foreach (var (slug, id) in await registry.ListHromadaIdsAsync(oblast, ct))
     {
         if (slug.StartsWith("_")) continue;
-        try
-        {
-            var sources = await registry.GetHromadaSourcesAsync(id, CancellationToken.None);
-            if (sources.Count == 0)
-            {
-                logger.LogInformation("[{Oblast}/{H}] No Active sources in registry — skipping", oblast, slug);
-                continue;
-            }
-            await research.RunHromadaAsync(oblast, slug, dryRun, CancellationToken.None, sources);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[{Oblast}/{H}] Failed", oblast, slug);
-        }
+        try { await RunHromadaNodeAsync(slug, id); }
+        catch (Exception ex) { logger.LogError(ex, "[{O}/{H}] Failed", oblast, slug); }
     }
 
     if (!dryRun) research.MergeOblastOutput(oblast);
 }
-else
-{
-    // Filesystem mode: oblast-level → distribute to hromadas → run each hromada's own sources → merge
-    await research.RunOblastLevelAsync(oblast, dryRun, CancellationToken.None);
 
+// Run a hromada's own sources, then each of its villages, then merge villages up into the hromada.
+async Task RunHromadaNodeAsync(string slug, Guid id)
+{
+    var sources = await registry!.GetHromadaSourcesAsync(id, ct);
+    if (sources.Count == 0 && discover)
+    {
+        logger.LogInformation("[{O}/{H}] No Active sources — running AI discovery", oblast, slug);
+        await registry.TriggerDiscoveryAsync("hromada", id, true, ct);
+        sources = await registry.GetHromadaSourcesAsync(id, ct);
+    }
+    if (sources.Count > 0)
+        await research.RunHromadaAsync(oblast, slug, dryRun, ct, sources);
+    else
+        logger.LogInformation("[{O}/{H}] No sources — skipping hromada-level fetch", oblast, slug);
+
+    foreach (var (vslug, vid) in await registry.ListVillageIdsAsync(id, ct))
+    {
+        if (vslug.StartsWith("_")) continue;
+        try { await RunVillageNodeAsync(slug, vslug, vid); }
+        catch (Exception ex) { logger.LogError(ex, "[{O}/{H}/{V}] Failed", oblast, slug, vslug); }
+    }
+
+    research.MergeVillagesIntoHromada(oblast, slug, dryRun);
+}
+
+async Task RunVillageNodeAsync(string hromadaSlug, string villageSlug, Guid villageId)
+{
+    var sources = await registry!.GetVillageSourcesAsync(villageId, ct);
+    if (sources.Count == 0 && discover)
+    {
+        logger.LogInformation("[{O}/{H}/{V}] No Active sources — running AI discovery", oblast, hromadaSlug, villageSlug);
+        await registry.TriggerDiscoveryAsync("village", villageId, true, ct);
+        sources = await registry.GetVillageSourcesAsync(villageId, ct);
+    }
+    if (sources.Count > 0)
+        await research.RunVillageAsync(oblast, hromadaSlug, villageSlug, dryRun, ct, sources);
+    else
+        logger.LogInformation("[{O}/{H}/{V}] No sources — skipping", oblast, hromadaSlug, villageSlug);
+}
+
+// ───────────────────────── Filesystem mode (manual/offline) ─────────────────────────
+async Task RunFilesystemModeAsync()
+{
+    if (!string.IsNullOrEmpty(village))
+    {
+        if (string.IsNullOrEmpty(hromada)) { logger.LogError("--village requires --hromada"); return; }
+        await research.RunVillageAsync(oblast, hromada, village, dryRun, ct);
+        research.MergeVillagesIntoHromada(oblast, hromada, dryRun);
+        return;
+    }
+
+    if (!string.IsNullOrEmpty(hromada))
+    {
+        await research.RunHromadaAsync(oblast, hromada, dryRun, ct);
+        await RunVillagesFromFilesystemAsync(hromada);
+        research.MergeVillagesIntoHromada(oblast, hromada, dryRun);
+        return;
+    }
+
+    await research.RunOblastLevelAsync(oblast, dryRun, ct);
     foreach (var h in paths.ListHromadas(oblast))
     {
         if (h.StartsWith("_")) continue;
-        if (!File.Exists(paths.HromadaSourcesPath(oblast, h)))
+        if (File.Exists(paths.HromadaSourcesPath(oblast, h)))
         {
-            logger.LogInformation("[{Oblast}/{H}] No sources.json — skipping", oblast, h);
-            continue;
+            try { await research.RunHromadaAsync(oblast, h, dryRun, ct); }
+            catch (Exception ex) { logger.LogError(ex, "[{O}/{H}] Failed", oblast, h); }
         }
-        try
+        else
         {
-            await research.RunHromadaAsync(oblast, h, dryRun, CancellationToken.None);
+            logger.LogInformation("[{O}/{H}] No sources.json — skipping hromada-level fetch", oblast, h);
         }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[{Oblast}/{H}] Failed", oblast, h);
-        }
+        await RunVillagesFromFilesystemAsync(h);
+        research.MergeVillagesIntoHromada(oblast, h, dryRun);
     }
 
     if (!dryRun) research.MergeOblastOutput(oblast);
 }
 
-return 0;
+async Task RunVillagesFromFilesystemAsync(string hromadaSlug)
+{
+    foreach (var v in paths.ListVillages(oblast, hromadaSlug))
+    {
+        if (v.StartsWith("_")) continue;
+        if (!File.Exists(paths.VillageSourcesPath(oblast, hromadaSlug, v)))
+        {
+            logger.LogInformation("[{O}/{H}/{V}] No sources.json — skipping", oblast, hromadaSlug, v);
+            continue;
+        }
+        try { await research.RunVillageAsync(oblast, hromadaSlug, v, dryRun, ct); }
+        catch (Exception ex) { logger.LogError(ex, "[{O}/{H}/{V}] Failed", oblast, hromadaSlug, v); }
+    }
+}
 
 ResearchRunner BuildRunner()
 {

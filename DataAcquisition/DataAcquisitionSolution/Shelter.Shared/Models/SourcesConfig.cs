@@ -14,6 +14,13 @@ public class HromadaSources
     public List<SourceEntry> Sources { get; set; } = [];
 }
 
+// hromadas/{hromada}/villages/{name}/sources.json
+public class VillageSources
+{
+    public string Village { get; set; } = "";
+    public List<SourceEntry> Sources { get; set; } = [];
+}
+
 public class SourceEntry
 {
     public string Url { get; set; } = "";

@@ -62,6 +62,56 @@ public class ResearchRunner(
         return existing;
     }
 
+    // Process one village: fetch sources (registry or sources.json), AI-map, merge into the village output.json.
+    public async Task<OutputDocument> RunVillageAsync(
+        string oblast, string hromada, string village, bool dryRun, CancellationToken ct,
+        IEnumerable<SourceEntry>? externalSources = null)
+    {
+        var outputPath = paths.VillageOutputPath(oblast, hromada, village);
+
+        VillageSources sources;
+        if (externalSources != null)
+        {
+            sources = new VillageSources { Village = village, Sources = externalSources.ToList() };
+        }
+        else
+        {
+            var srcPath = paths.VillageSourcesPath(oblast, hromada, village);
+            if (!File.Exists(srcPath))
+                throw new FileNotFoundException($"sources.json not found at {srcPath}");
+            sources = JsonIO.Read<VillageSources>(srcPath);
+        }
+        var existing = JsonIO.ReadIfExists<OutputDocument>(outputPath) ?? new OutputDocument
+        {
+            Meta = new OutputMeta { Oblast = oblast, Hromada = hromada, Village = village }
+        };
+
+        logger.LogInformation("[{Oblast}/{Hromada}/{Village}] Sources: {Count}, existing records: {Records}",
+            oblast, hromada, village, sources.Sources.Count, existing.Records.Count);
+
+        foreach (var source in sources.Sources)
+        {
+            await ProcessSource(source, existing, level: "village", levelName: village,
+                paths.VillageDir(oblast, hromada, village), ct);
+        }
+
+        existing.Meta.GeneratedAt = DateTime.UtcNow;
+
+        if (!dryRun)
+        {
+            JsonIO.Write(outputPath, existing);
+            logger.LogInformation("[{Oblast}/{Hromada}/{Village}] Wrote {Path} ({Count} records)",
+                oblast, hromada, village, outputPath, existing.Records.Count);
+        }
+        else
+        {
+            logger.LogInformation("[{Oblast}/{Hromada}/{Village}] DRY RUN — not writing {Path}",
+                oblast, hromada, village, outputPath);
+        }
+
+        return existing;
+    }
+
     // Process the oblast level: sources → group records by city → distribute to hromada folders.
     public async Task RunOblastLevelAsync(
         string oblast, bool dryRun, CancellationToken ct,
@@ -151,12 +201,15 @@ public class ResearchRunner(
         // Inject system fields
         var oblast = output.Meta.Oblast;
         var hromada = output.Meta.Hromada;
+        var village = output.Meta.Village;
         foreach (var r in incoming)
         {
             r.SourceUrl = source.Url;
             r.Details.Add(new DetailDto("Oblast", oblast));
             if (!string.IsNullOrEmpty(hromada))
                 r.Details.Add(new DetailDto("City", hromada));
+            if (!string.IsNullOrEmpty(village))
+                r.Details.Add(new DetailDto("Village", village));
             r.Details.Add(new DetailDto("DataSource", source.Url));
         }
 
@@ -226,11 +279,42 @@ public class ResearchRunner(
         return groups;
     }
 
-    // Merge all hromada output.json files into oblast-level output.json.
+    // Merge all village output.json files under a hromada UP into the hromada output.json.
+    // Uses the deduplicator so cross-level duplicates resolve (village-specific fields fill gaps
+    // left by hromada/oblast-level records). Idempotent: re-running adds no duplicate records.
+    public void MergeVillagesIntoHromada(string oblast, string hromada, bool dryRun)
+    {
+        var outputPath = paths.HromadaOutputPath(oblast, hromada);
+        var doc = JsonIO.ReadIfExists<OutputDocument>(outputPath) ?? new OutputDocument
+        {
+            Meta = new OutputMeta { Oblast = oblast, Hromada = hromada }
+        };
+
+        var villageCount = 0;
+        foreach (var village in paths.ListVillages(oblast, hromada))
+        {
+            if (village.StartsWith("_")) continue;
+            var vdoc = JsonIO.ReadIfExists<OutputDocument>(paths.VillageOutputPath(oblast, hromada, village));
+            if (vdoc == null) continue;
+            var merged = dedup.Merge(doc.Records, vdoc.Records);
+            doc.Records = merged.AllRecords;
+            doc.Meta.SourcesUsed.AddRange(vdoc.Meta.SourcesUsed);
+            villageCount++;
+        }
+
+        doc.Meta.GeneratedAt = DateTime.UtcNow;
+        if (!dryRun) JsonIO.Write(outputPath, doc);
+        logger.LogInformation("[{Oblast}/{Hromada}] Merged {V} villages → {Count} records",
+            oblast, hromada, villageCount, doc.Records.Count);
+    }
+
+    // Merge all hromada output.json files UP into oblast-level output.json (dedup, not concat).
     public void MergeOblastOutput(string oblast)
     {
-        var allRecords = new List<NormalizedShelter>();
-        var allSources = new List<SourceUsed>();
+        var merged = new OutputDocument
+        {
+            Meta = new OutputMeta { Oblast = oblast, GeneratedAt = DateTime.UtcNow }
+        };
 
         foreach (var hromada in paths.ListHromadas(oblast))
         {
@@ -238,22 +322,13 @@ public class ResearchRunner(
             // The folder name just signals "I didn't have a hromada to put these under".
             var doc = JsonIO.ReadIfExists<OutputDocument>(paths.HromadaOutputPath(oblast, hromada));
             if (doc == null) continue;
-            allRecords.AddRange(doc.Records);
-            allSources.AddRange(doc.Meta.SourcesUsed);
+            var step = dedup.Merge(merged.Records, doc.Records);
+            merged.Records = step.AllRecords;
+            merged.Meta.SourcesUsed.AddRange(doc.Meta.SourcesUsed);
         }
 
-        var merged = new OutputDocument
-        {
-            Meta = new OutputMeta
-            {
-                Oblast = oblast,
-                GeneratedAt = DateTime.UtcNow,
-                SourcesUsed = allSources
-            },
-            Records = allRecords
-        };
         JsonIO.Write(paths.OblastOutputPath(oblast), merged);
         logger.LogInformation("[{Oblast}] Merged oblast output: {Count} records → {Path}",
-            oblast, allRecords.Count, paths.OblastOutputPath(oblast));
+            oblast, merged.Records.Count, paths.OblastOutputPath(oblast));
     }
 }

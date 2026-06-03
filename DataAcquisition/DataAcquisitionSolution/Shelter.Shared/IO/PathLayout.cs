@@ -28,9 +28,28 @@ public class PathLayout(string repoRoot)
     public string HromadaOutputPath(string oblast, string hromada) =>
         Path.Combine(HromadaDir(oblast, hromada), "output.json");
 
+    public string VillagesDir(string oblast, string hromada) =>
+        Path.Combine(HromadaDir(oblast, hromada), "villages");
+
+    public string VillageDir(string oblast, string hromada, string village) =>
+        Path.Combine(VillagesDir(oblast, hromada), village);
+
+    public string VillageSourcesPath(string oblast, string hromada, string village) =>
+        Path.Combine(VillageDir(oblast, hromada, village), "sources.json");
+
+    public string VillageOutputPath(string oblast, string hromada, string village) =>
+        Path.Combine(VillageDir(oblast, hromada, village), "output.json");
+
     public IEnumerable<string> ListHromadas(string oblast)
     {
         var dir = HromadasDir(oblast);
+        if (!Directory.Exists(dir)) return [];
+        return Directory.GetDirectories(dir).Select(Path.GetFileName)!;
+    }
+
+    public IEnumerable<string> ListVillages(string oblast, string hromada)
+    {
+        var dir = VillagesDir(oblast, hromada);
         if (!Directory.Exists(dir)) return [];
         return Directory.GetDirectories(dir).Select(Path.GetFileName)!;
     }

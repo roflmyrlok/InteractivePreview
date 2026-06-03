@@ -12,13 +12,14 @@ public class OutputMeta
 {
     public string Oblast { get; set; } = "";
     public string? Hromada { get; set; }
+    public string? Village { get; set; }
     public DateTime GeneratedAt { get; set; }
     public List<SourceUsed> SourcesUsed { get; set; } = [];
 }
 
 public class SourceUsed
 {
-    public string Level { get; set; } = "";          // "oblast" | "hromada"
+    public string Level { get; set; } = "";          // "oblast" | "hromada" | "village"
     public string? Name { get; set; }                 // e.g. "Vyshneve"
     public string Url { get; set; } = "";
     public DateTime FetchedAt { get; set; }
