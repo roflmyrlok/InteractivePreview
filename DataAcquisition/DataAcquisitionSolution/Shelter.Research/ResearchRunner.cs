@@ -44,7 +44,14 @@ public class ResearchRunner(
 
         foreach (var source in sources.Sources)
         {
-            await ProcessSource(source, existing, level: "hromada", levelName: hromada, paths.HromadaDir(oblast, hromada), ct);
+            try
+            {
+                await ProcessSource(source, existing, level: "hromada", levelName: hromada, paths.HromadaDir(oblast, hromada), ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[{Oblast}/{Hromada}] Source failed, skipping: {Url}", oblast, hromada, source.Url);
+            }
         }
 
         existing.Meta.GeneratedAt = DateTime.UtcNow;
@@ -91,8 +98,16 @@ public class ResearchRunner(
 
         foreach (var source in sources.Sources)
         {
-            await ProcessSource(source, existing, level: "village", levelName: village,
-                paths.VillageDir(oblast, hromada, village), ct);
+            try
+            {
+                await ProcessSource(source, existing, level: "village", levelName: village,
+                    paths.VillageDir(oblast, hromada, village), ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[{Oblast}/{Hromada}/{Village}] Source failed, skipping: {Url}",
+                    oblast, hromada, village, source.Url);
+            }
         }
 
         existing.Meta.GeneratedAt = DateTime.UtcNow;
@@ -136,23 +151,30 @@ public class ResearchRunner(
 
         foreach (var source in sources.Sources)
         {
-            // Fetch + parse + AI map
-            var records = await FetchAndNormalize(source, paths.OblastDir(oblast), ct);
-
-            // Group by city/hromada (heuristic: address contains hromada name)
-            var hromadaFolders = paths.ListHromadas(oblast).ToList();
-            var grouped = GroupByHromada(records, hromadaFolders);
-
-            foreach (var (hromada, hromadaRecords) in grouped)
+            try
             {
-                await MergeIntoHromada(oblast, hromada, hromadaRecords, source, dryRun, ct);
+                // Fetch + parse + AI map
+                var records = await FetchAndNormalize(source, paths.OblastDir(oblast), ct);
+
+                // Group by city/hromada (heuristic: address contains hromada name)
+                var hromadaFolders = paths.ListHromadas(oblast).ToList();
+                var grouped = GroupByHromada(records, hromadaFolders);
+
+                foreach (var (hromada, hromadaRecords) in grouped)
+                {
+                    await MergeIntoHromada(oblast, hromada, hromadaRecords, source, dryRun, ct);
+                }
+
+                // Records that didn't match any hromada folder — log & save to "_unassigned"
+                if (grouped.TryGetValue("_unassigned", out var orphans) && orphans.Count > 0)
+                {
+                    logger.LogWarning("[{Oblast}] {Count} records didn't match any hromada folder (saved under _unassigned)",
+                        oblast, orphans.Count);
+                }
             }
-
-            // Records that didn't match any hromada folder — log & save to "_unassigned"
-            if (grouped.TryGetValue("_unassigned", out var orphans) && orphans.Count > 0)
+            catch (Exception ex)
             {
-                logger.LogWarning("[{Oblast}] {Count} records didn't match any hromada folder (saved under _unassigned)",
-                    oblast, orphans.Count);
+                logger.LogWarning(ex, "[{Oblast}] Oblast-level source failed, skipping: {Url}", oblast, source.Url);
             }
         }
     }
