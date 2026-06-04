@@ -103,7 +103,8 @@ public class RegistryClient(HttpClient http)
                 using var resp = await http.PostAsync(url, null, ct);
                 if (resp.IsSuccessStatusCode) return true;
             }
-            catch (HttpRequestException) { /* fall through to backoff */ }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or TimeoutException)
+            { /* fall through to backoff — covers 429, connection refused, and server-side timeout */ }
 
             if (attempt < MaxDiscoveryAttempts)
                 await Task.Delay(TimeSpan.FromSeconds(BackoffBaseSeconds * attempt), ct);
@@ -125,7 +126,9 @@ public class RegistryClient(HttpClient http)
 
     public static RegistryClient Create(string baseUrl, string token)
     {
-        var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(30) };
+        // 120s: server-side discovery calls Anthropic web_search which can take >30s,
+        // so use a generous timeout; the discovery backoff loop adds its own per-attempt guard.
+        var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(120) };
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return new RegistryClient(http);
     }
