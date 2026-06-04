@@ -66,7 +66,9 @@ public class HtmlParser : ISourceParser
     private static List<RawRecord> ExtractFromList(HtmlDocument doc)
     {
         var records = new List<RawRecord>();
-        var items = doc.DocumentNode.SelectNodes("//ul/li | //ol/li");
+        // Skip <li> items inside nav/menu elements — those are site navigation, not data.
+        var items = doc.DocumentNode.SelectNodes(
+            "//ul/li[not(ancestor::nav) and not(ancestor::*[@role='navigation']) and not(ancestor::*[contains(@class,'menu') or contains(@class,'nav') or contains(@class,'sidebar') or contains(@class,'header') or contains(@class,'footer')])] | //ol/li");
         if (items == null) return records;
 
         foreach (var li in items)

@@ -264,6 +264,11 @@ public class ResearchRunner(
             var address = r.Address ?? r.Fields.GetValueOrDefault("address") ?? r.Fields.GetValueOrDefault("name") ?? "";
             if (string.IsNullOrWhiteSpace(address)) continue;
 
+            // Plausibility filter: a real shelter address must either contain a digit
+            // (building number) or a known Ukrainian street-type keyword.
+            // This rejects nav-menu items scraped from HTML pages ("Паспорт громади" etc).
+            if (!LooksLikeAddress(address)) continue;
+
             result.Add(new NormalizedShelter
             {
                 Address = address,
@@ -274,6 +279,25 @@ public class ResearchRunner(
             });
         }
         return result;
+    }
+
+    // A real shelter address contains a digit (building number) OR a street-type keyword.
+    // Rejects navigation labels like "Паспорт громади", "Голова громади", "Апарат" etc.
+    private static readonly string[] StreetKeywords =
+    [
+        "вул.", "вулиця", "просп.", "проспект", "пров.", "провулок",
+        "пл.", "площа", "бул.", "бульвар", "шос.", "шосе",
+        "набережна", "узвіз", "алея", "тупик", "мікрорайон", "мкр.",
+        "буд.", "будинок", "корпус", "кв.", "квартал"
+    ];
+
+    private static bool LooksLikeAddress(string address)
+    {
+        // Has a digit → likely has a building number
+        if (address.Any(char.IsDigit)) return true;
+
+        var lower = address.ToLowerInvariant();
+        return StreetKeywords.Any(kw => lower.Contains(kw));
     }
 
     // Distribute records into hromada folders by simple address-substring matching.
